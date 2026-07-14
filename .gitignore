@@ -1,0 +1,14 @@
+node_modules/
+dist/
+build/
+.next/
+out/
+coverage/
+.env
+.env.*.local
+.DS_Store
+forex_bot_db.json
+ml-service/venv/
+ml-service/.venv/
+__pycache__/
+*.pyc
