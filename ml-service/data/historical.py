@@ -1,12 +1,25 @@
 import os
 import json
 import random
+import logging
 from datetime import datetime, timedelta
 
-def fetch_historical_candles(instrument: str, granularity: str, lookback_days: int) -> list[dict]:
+logger = logging.getLogger(__name__)
+
+def fetch_historical_candles(
+    instrument: str,
+    granularity: str,
+    lookback_days: int,
+    allow_synthetic: bool = False,
+) -> tuple[list[dict], str]:
     """
-    Fetches historical candles from the shared JSON database, or generates
-    realistic simulated candles if there is insufficient data.
+    Fetches historical candles from the shared JSON database.
+    
+    Returns:
+        Tuple of (candles_list, data_source) where data_source is "REAL" or "SYNTHETIC".
+    
+    Raises:
+        ValueError: If insufficient real data and allow_synthetic is False.
     """
     db_path = os.getenv("DB_PATH", "../forex_bot.db")
     # Resolve the JSON file path relative to the db path
@@ -29,14 +42,26 @@ def fetch_historical_candles(instrument: str, granularity: str, lookback_days: i
                 # Sort chronologically (oldest first)
                 candles.sort(key=lambda x: x.get("time"))
         except Exception as e:
-            print(f"Error reading JSON database in python historical fetch: {e}")
+            logger.error(f"Error reading JSON database in python historical fetch: {e}")
             
-    # If we don't have enough candles (need at least 200), generate synthetic candles
+    # If we don't have enough candles (need at least 200)
     if len(candles) < 200:
-        print(f"Insufficient candles in database ({len(candles)} found). Generating synthetic data for {instrument}...")
-        candles = generate_synthetic_candles(instrument, granularity, count=500)
+        if not allow_synthetic:
+            raise ValueError(
+                f"Insufficient real market data for {instrument} ({len(candles)} candles found, "
+                f"need at least 200). Set allow_synthetic=true to train on synthetic data, "
+                f"but be aware the model will NOT reflect real market dynamics."
+            )
         
-    return candles
+        logger.warning(
+            f"Insufficient real candles ({len(candles)} found). "
+            f"Generating SYNTHETIC data for {instrument}. "
+            f"Model trained on this data should NOT be trusted for live trading."
+        )
+        candles = generate_synthetic_candles(instrument, granularity, count=500)
+        return candles, "SYNTHETIC"
+        
+    return candles, "REAL"
 
 def generate_synthetic_candles(instrument: str, granularity: str, count: int) -> list[dict]:
     """

@@ -2,16 +2,30 @@ import { config } from '../config';
 import { logger } from '../logger';
 import { db } from '../db';
 import { PositionInfo } from '../strategy/strategy.interface';
+import { RejectionLogger } from './rejectionLogger';
+import { TelegramNotifier } from '../notifier/telegram';
 
 type RiskMode = 'conservative' | 'standard' | 'aggressive';
 
 export class RiskManager {
+  // Deduplication: only alert once per calendar day for daily/weekly limit
+  private static dailyLimitAlertedDate: string = '';
+  private static weeklyLimitAlertedDate: string = '';
+
   /**
    * Checks if we can open a new position based on concurrent position limits.
    */
-  public static checkPositionLimit(currentOpenCount: number): boolean {
+  public static checkPositionLimit(currentOpenCount: number, instrument: string = 'UNKNOWN'): boolean {
     if (currentOpenCount >= config.RISK_MAX_CONCURRENT_POSITIONS) {
       logger.warn(`Risk Management: Position count limit reached (${currentOpenCount}/${config.RISK_MAX_CONCURRENT_POSITIONS}). Rejects signal.`);
+      RejectionLogger.log(
+        'RiskManager.checkPositionLimit',
+        'POSITION_LIMIT',
+        instrument,
+        undefined,
+        undefined,
+        `${currentOpenCount}/${config.RISK_MAX_CONCURRENT_POSITIONS} positions open`
+      );
       return false;
     }
     return true;
@@ -21,7 +35,7 @@ export class RiskManager {
    * Checks if the daily loss limit has been breached.
    * Compares today's realized + unrealized PnL against starting equity.
    */
-  public static checkDailyLossLimit(currentBalance: number, currentUnrealized: number): boolean {
+  public static checkDailyLossLimit(currentBalance: number, currentUnrealized: number, instrument: string = 'UNKNOWN'): boolean {
     const todayStr = new Date().toISOString().substring(0, 10); // YYYY-MM-DD
     
     // Sum realized PnL of trades closed today
@@ -37,13 +51,32 @@ export class RiskManager {
 
     if (totalTodayPnL <= -limitAmount) {
       logger.warn(`Risk Management: Daily loss limit breached (PnL: $${totalTodayPnL.toFixed(2)}, Limit: -$${limitAmount.toFixed(2)}). Halted trading for today.`);
+      
+      RejectionLogger.log(
+        'RiskManager.checkDailyLossLimit',
+        'DAILY_LOSS_LIMIT',
+        instrument,
+        undefined,
+        undefined,
+        `Today PnL: $${totalTodayPnL.toFixed(2)}, Limit: -$${limitAmount.toFixed(2)}`
+      );
+
+      // Alert via Telegram (once per day)
+      if (this.dailyLimitAlertedDate !== todayStr) {
+        this.dailyLimitAlertedDate = todayStr;
+        TelegramNotifier.sendMessage(
+          `⚠️ *DAILY LOSS LIMIT HIT*\nToday PnL: $${totalTodayPnL.toFixed(2)}\nLimit: -$${limitAmount.toFixed(2)}\nNo new trades until tomorrow.`
+        );
+      }
+
       return false;
     }
     return true;
   }
 
-  public static checkWeeklyLossLimit(currentBalance: number, currentUnrealized: number): boolean {
+  public static checkWeeklyLossLimit(currentBalance: number, currentUnrealized: number, instrument: string = 'UNKNOWN'): boolean {
     const today = new Date();
+    const todayStr = today.toISOString().substring(0, 10);
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(today.getDate() - 7);
     const startStr = sevenDaysAgo.toISOString();
@@ -60,8 +93,96 @@ export class RiskManager {
 
     if (totalWeekPnL <= -limitAmount) {
       logger.warn(`Risk Management: Weekly loss limit breached (PnL: $${totalWeekPnL.toFixed(2)}, Limit: -$${limitAmount.toFixed(2)}).`);
+      
+      RejectionLogger.log(
+        'RiskManager.checkWeeklyLossLimit',
+        'WEEKLY_LOSS_LIMIT',
+        instrument,
+        undefined,
+        undefined,
+        `Week PnL: $${totalWeekPnL.toFixed(2)}, Limit: -$${limitAmount.toFixed(2)}`
+      );
+
+      // Alert via Telegram (once per day)
+      if (this.weeklyLimitAlertedDate !== todayStr) {
+        this.weeklyLimitAlertedDate = todayStr;
+        TelegramNotifier.sendMessage(
+          `⚠️ *WEEKLY LOSS LIMIT HIT*\nWeek PnL: $${totalWeekPnL.toFixed(2)}\nLimit: -$${limitAmount.toFixed(2)}`
+        );
+      }
+
       return false;
     }
+    return true;
+  }
+
+  /**
+   * Checks if daily profit has reached the lock target. If so, trading is halted for the day.
+   */
+  public static checkDailyProfitLock(
+    balance: number,
+    currentUnrealized: number,
+    instrument: string
+  ): boolean {
+    const today = new Date().toISOString().split('T')[0];
+    
+    const row = db.prepare(`
+      SELECT SUM(pnl) as realizedToday
+      FROM trades
+      WHERE status = 'CLOSED' AND exit_time LIKE ?
+    `).get(`${today}%`) as { realizedToday: number | null };
+
+    const realizedToday = row?.realizedToday || 0;
+    const totalTodayPnL = realizedToday + currentUnrealized;
+    const targetAmount = config.STARTING_BALANCE * (config.RISK_DAILY_PROFIT_LOCK_PCT / 100);
+
+    if (totalTodayPnL >= targetAmount && config.RISK_DAILY_PROFIT_LOCK_PCT > 0) {
+      logger.info(`Risk Management: Daily profit lock reached (PnL: $${totalTodayPnL.toFixed(2)}, Target: $${targetAmount.toFixed(2)}). Halted trading for today to lock in profit.`);
+      
+      RejectionLogger.log(
+        'RiskManager.checkDailyProfitLock',
+        'DAILY_PROFIT_LOCK',
+        instrument,
+        undefined,
+        undefined,
+        `Today PnL: $${totalTodayPnL.toFixed(2)}, Target: $${targetAmount.toFixed(2)}`
+      );
+      
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * Checks if the trade action is allowed based on the global trade direction config.
+   */
+  public static checkTradeDirection(action: 'BUY' | 'SELL', instrument: string): boolean {
+    if (config.TRADE_DIRECTION === 'BOTH') return true;
+    
+    if (config.TRADE_DIRECTION === 'BUY_ONLY' && action === 'SELL') {
+      RejectionLogger.log(
+        'RiskManager.checkTradeDirection',
+        'DIRECTION_RESTRICTION',
+        instrument,
+        action,
+        undefined,
+        `Blocked SELL signal due to BUY_ONLY mode`
+      );
+      return false;
+    }
+    
+    if (config.TRADE_DIRECTION === 'SELL_ONLY' && action === 'BUY') {
+      RejectionLogger.log(
+        'RiskManager.checkTradeDirection',
+        'DIRECTION_RESTRICTION',
+        instrument,
+        action,
+        undefined,
+        `Blocked BUY signal due to SELL_ONLY mode`
+      );
+      return false;
+    }
+    
     return true;
   }
 
@@ -100,6 +221,14 @@ export class RiskManager {
 
     if (minLotRisk > amountToRisk) {
       logger.warn(`Risk budget too small for minimum lot size (0.01 lot) at this SL distance - widen SL or skip. Budget: $${amountToRisk.toFixed(2)}, Min Risk: $${minLotRisk.toFixed(2)}. Rejected.`);
+      RejectionLogger.log(
+        'RiskManager.calculatePositionSize',
+        'MIN_LOT_SIZE',
+        instrument,
+        undefined,
+        undefined,
+        `Budget: $${amountToRisk.toFixed(2)}, Min Risk: $${minLotRisk.toFixed(2)}`
+      );
       return 0;
     }
 
@@ -113,7 +242,7 @@ export class RiskManager {
     return units;
   }
 
-  public static checkTotalOpenRisk(currentBalance: number, openPositions: PositionInfo[], newPositionRiskPct: number = 0): boolean {
+  public static checkTotalOpenRisk(currentBalance: number, openPositions: PositionInfo[], newPositionRiskPct: number = 0, instrument: string = 'UNKNOWN'): boolean {
     let totalRiskDollars = 0;
 
     for (const pos of openPositions) {
@@ -128,6 +257,14 @@ export class RiskManager {
 
     if (riskWithNew > maxRiskDollars) {
       logger.warn(`Risk Management: Total open risk limit breached. (Current: $${totalRiskDollars.toFixed(2)}, Max: $${maxRiskDollars.toFixed(2)}). Rejects signal.`);
+      RejectionLogger.log(
+        'RiskManager.checkTotalOpenRisk',
+        'TOTAL_OPEN_RISK',
+        instrument,
+        undefined,
+        undefined,
+        `Current risk: $${totalRiskDollars.toFixed(2)}, Max: $${maxRiskDollars.toFixed(2)}, New would add: ${newPositionRiskPct.toFixed(2)}%`
+      );
       return false;
     }
 
@@ -160,6 +297,14 @@ export class RiskManager {
             const existingDirection = this.getUsdDirection(pos.instrument, pos.action);
             if (newDirection === existingDirection && newDirection !== 'NEUTRAL') {
                logger.warn(`Risk Management: Correlation limit. Blocking ${action} ${instrument} due to existing correlated exposure in ${pos.instrument}.`);
+               RejectionLogger.log(
+                 'RiskManager.checkCorrelationExposure',
+                 'CORRELATION_EXPOSURE',
+                 instrument,
+                 action,
+                 undefined,
+                 `Blocked due to correlated exposure in ${pos.instrument} (both ${newDirection})`
+               );
                return false;
             }
           }

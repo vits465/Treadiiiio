@@ -5,7 +5,9 @@
 // Fill in NEXT_PUBLIC_BOT_API_URL / NEXT_PUBLIC_BOT_WS_URL in .env.local
 
 const API_BASE = process.env.NEXT_PUBLIC_BOT_API_URL ?? "http://localhost:4000";
-const WS_URL = process.env.NEXT_PUBLIC_BOT_WS_URL ?? "ws://localhost:4000/ws";
+const WS_BASE_URL = process.env.NEXT_PUBLIC_BOT_WS_URL ?? "ws://localhost:4000/ws";
+const API_KEY = process.env.NEXT_PUBLIC_API_KEY ?? "a3f7c9d2e1b4f6a8c0d5e7f9b2a4c6d8";
+const WS_URL = `${WS_BASE_URL}?apiKey=${API_KEY}`;
 
 // ---------- Types (mirror the Node bot's response shapes) ----------
 
@@ -71,7 +73,7 @@ export interface StrategyToggle {
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     ...init,
-    headers: { "Content-Type": "application/json", ...init?.headers },
+    headers: { "Content-Type": "application/json", "x-api-key": API_KEY, ...init?.headers },
   });
   if (!res.ok) {
     const body = await res.text().catch(() => "");

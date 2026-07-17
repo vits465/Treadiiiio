@@ -1,16 +1,30 @@
 process.env.DB_PATH = ':memory:';
 process.env.USE_SIMULATOR = 'true';
+process.env.CURRENCY_PAIRS = 'EUR_USD';
 process.env.STARTING_BALANCE = '10000';
+process.env.RISK_MAX_CONCURRENT_POSITIONS = '5';
+process.env.CORRELATION_GROUPS = 'USD:EUR_USD,GBP_USD,USD_JPY,AUD_USD,USD_CHF';
+process.env.API_SECRET_KEY = 'test_api_key_for_unit_tests_1234';
+process.env.CORS_ALLOWED_ORIGIN = 'http://localhost:3000';
 
 import { initDb, db } from '../src/db';
 import { RiskManager } from '../src/risk/riskManager';
 
+// Mock TelegramNotifier to avoid actual API calls in tests
+jest.mock('../src/notifier/telegram', () => ({
+  TelegramNotifier: {
+    sendMessage: jest.fn(),
+    initialize: jest.fn(),
+  }
+}));
+
 describe('RiskManager Unit Tests', () => {
   beforeEach(() => {
     try {
-      db.prepare('DROP TABLE IF EXISTS positions').run();
-      db.prepare('DROP TABLE IF EXISTS trades').run();
-      db.prepare('DROP TABLE IF EXISTS equity_snapshots').run();
+      db.prepare('DELETE FROM positions').run();
+      db.prepare('DELETE FROM trades').run();
+      db.prepare('DELETE FROM equity_snapshots').run();
+      db.prepare('DELETE FROM filter_rejections').run();
     } catch (e) {}
     initDb();
   });
@@ -20,7 +34,7 @@ describe('RiskManager Unit Tests', () => {
   });
 
   test('should enforce concurrent position limits', () => {
-    // max position limit is 5 by default
+    // max position limit is 5 by default (env sets RISK_MAX_CONCURRENT_POSITIONS default)
     expect(RiskManager.checkPositionLimit(4)).toBe(true);
     expect(RiskManager.checkPositionLimit(5)).toBe(false);
   });
@@ -95,5 +109,17 @@ describe('RiskManager Unit Tests', () => {
     `).run('t2', 'EUR_USD', 'BUY', '2026-07-10T10:00:00Z', exitTime, 1.0800, 1.0740, 10000, -1300.0, 'ma_crossover', 'CLOSED');
 
     expect(RiskManager.checkWeeklyLossLimit(8700, 0)).toBe(false);
+  });
+
+  test('should log rejections into filter_rejections table', () => {
+    // Trigger a position limit rejection
+    RiskManager.checkPositionLimit(5, 'EUR_USD');
+
+    // Check that a rejection was logged
+    const rejections = db.prepare('SELECT * FROM filter_rejections').all() as any[];
+    expect(rejections.length).toBe(1);
+    expect(rejections[0].filter_name).toBe('RiskManager.checkPositionLimit');
+    expect(rejections[0].reason_code).toBe('POSITION_LIMIT');
+    expect(rejections[0].instrument).toBe('EUR_USD');
   });
 });

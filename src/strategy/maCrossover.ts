@@ -31,7 +31,7 @@ export class MaCrossoverStrategy implements Strategy {
     
     // Multi-Timeframe Trend Filter
     let dailyTrend: 'UP' | 'DOWN' | 'FLAT' = 'FLAT';
-    if (context.macroCandles.length >= 20) {
+    if (context.macroCandles && context.macroCandles.length >= 20) {
       const dailySma = this.getSmaValue(context.macroCandles, context.macroCandles.length - 1, 20);
       if (dailySma) {
         const dailyClose = context.macroCandles[context.macroCandles.length - 1].close;

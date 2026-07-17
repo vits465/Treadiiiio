@@ -31,19 +31,14 @@ class TestFeatureEngineering(unittest.TestCase):
         # Verify columns are added
         expected_cols = [
             'sma_9', 'sma_21', 'ema_12', 'ema_26', 'macd', 'macd_signal', 'macd_hist',
-            'rsi_14', 'bb_middle', 'bb_std', 'bb_upper', 'bb_lower', 'bb_width',
+            'rsi_14', 'bb_middle', 'bb_upper', 'bb_lower', 'bb_width',
             'atr_14', 'roc_10', 'feat_ma_crossover', 'feat_rsi_reversion', 'feat_bollinger_reversion'
         ]
         for col in expected_cols:
             self.assertIn(col, df_features.columns)
             
-        # The first few rows should be NaN for indicators requiring window size (like SMA 21)
-        self.assertTrue(df_features['sma_21'].iloc[:20].isnull().any())
-        # The last row should have full computed values
-        last_row = df_features.iloc[-1]
-        self.assertFalse(np.isnan(last_row['sma_21']))
-        self.assertFalse(np.isnan(last_row['rsi_14']))
-        self.assertFalse(np.isnan(last_row['bb_width']))
+        # The dataframe should not contain nulls because compute_features calls bfill/ffill
+        self.assertFalse(df_features.isnull().any().any())
         
     def test_indicator_values_bounds(self):
         df_features = compute_features(self.mock_data)

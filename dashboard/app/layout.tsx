@@ -25,7 +25,9 @@ export default function RootLayout({
   const [wsConnected, setWsConnected] = useState(false);
 
   useEffect(() => {
-    const socketUrl = process.env.NEXT_PUBLIC_BOT_WS_URL ?? "ws://localhost:4000/ws";
+    const wsBaseUrl = process.env.NEXT_PUBLIC_BOT_WS_URL ?? "ws://localhost:4000/ws";
+    const apiKey = process.env.NEXT_PUBLIC_API_KEY ?? "a3f7c9d2e1b4f6a8c0d5e7f9b2a4c6d8";
+    const socketUrl = `${wsBaseUrl}?apiKey=${apiKey}`;
     let ws: WebSocket;
     let reconnectTimeout: NodeJS.Timeout;
 

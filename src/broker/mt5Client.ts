@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { config } from '../config';
 import { logger } from '../logger';
+import { TelegramNotifier } from '../notifier/telegram';
 
 export interface MT5OrderResponse {
   order_id: string;
@@ -63,7 +64,8 @@ export class MT5Client {
     action: 'BUY' | 'SELL',
     volume: number,
     slPips?: number,
-    tpPips?: number
+    tpPips?: number,
+    requestedPrice?: number
   ): Promise<MT5OrderResponse | null> {
     if (config.USE_SIMULATOR) {
       logger.info(`[SIMULATOR] Placed mock ${action} order for ${volume} ${instrument}`);
@@ -78,14 +80,40 @@ export class MT5Client {
     }
     try {
       logger.info(`[MT5] Placing ${action} order for ${volume} ${instrument}...`);
+      const startTime = Date.now();
       const response = await this.withRetry(() => axios.post(`${this.baseURL}/order`, {
         instrument,
         action,
         volume,
         sl_pips: slPips,
         tp_pips: tpPips
+      }, {
+        headers: { 'X-API-Key': config.API_SECRET_KEY }
       }));
-      return response.data;
+      const latencyMs = Date.now() - startTime;
+      
+      const responseData = response.data;
+      logger.info(`[MT5] Order placed successfully. Latency: ${latencyMs}ms`);
+
+      if (latencyMs > config.ALERT_LATENCY_MS) {
+        logger.warn(`[MT5] High latency detected: ${latencyMs}ms (Threshold: ${config.ALERT_LATENCY_MS}ms)`);
+        TelegramNotifier.sendMessage(`⚠️ *HIGH EXECUTION LATENCY*\nInstrument: ${instrument}\nLatency: ${latencyMs}ms\nThreshold: ${config.ALERT_LATENCY_MS}ms`);
+      }
+
+      if (requestedPrice && responseData.price) {
+        const isJpy = instrument.includes('JPY');
+        const pipSize = isJpy ? 0.01 : 0.0001;
+        const slippagePips = Math.abs(responseData.price - requestedPrice) / pipSize;
+        
+        logger.info(`[MT5] Execution slippage: ${slippagePips.toFixed(1)} pips`);
+        
+        if (slippagePips > config.ALERT_SLIPPAGE_PIPS) {
+          logger.warn(`[MT5] High slippage detected: ${slippagePips.toFixed(1)} pips (Threshold: ${config.ALERT_SLIPPAGE_PIPS} pips)`);
+          TelegramNotifier.sendMessage(`⚠️ *HIGH SLIPPAGE*\nInstrument: ${instrument}\nSlippage: ${slippagePips.toFixed(1)} pips\nThreshold: ${config.ALERT_SLIPPAGE_PIPS} pips`);
+        }
+      }
+
+      return responseData;
     } catch (error: any) {
       logger.error(`[MT5] Order failed after retries: ${error.response?.data?.detail || error.message}`);
       return null;
@@ -99,7 +127,9 @@ export class MT5Client {
     }
     try {
       logger.info(`[MT5] Closing order ${orderId}...`);
-      await this.withRetry(() => axios.post(`${this.baseURL}/close`, { order_id: orderId }));
+      await this.withRetry(() => axios.post(`${this.baseURL}/close`, { order_id: orderId }, {
+        headers: { 'X-API-Key': config.API_SECRET_KEY }
+      }));
       return true;
     } catch (error: any) {
       logger.error(`[MT5] Close order failed after retries: ${error.response?.data?.detail || error.message}`);
@@ -112,7 +142,9 @@ export class MT5Client {
       return []; // Return empty mock positions array
     }
     try {
-      const response = await this.withRetry(() => axios.get(`${this.baseURL}/positions`));
+      const response = await this.withRetry(() => axios.get(`${this.baseURL}/positions`, {
+        headers: { 'X-API-Key': config.API_SECRET_KEY }
+      }));
       return response.data;
     } catch (error: any) {
       logger.error(`[MT5] Failed to get positions: ${error.message}`);
@@ -139,7 +171,8 @@ export class MT5Client {
     }
     try {
       const response = await this.withRetry(() => axios.get(`${this.baseURL}/quote`, {
-        params: { instrument }
+        params: { instrument },
+        headers: { 'X-API-Key': config.API_SECRET_KEY }
       }), 2, 500);
       return response.data;
     } catch (error: any) {

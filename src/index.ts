@@ -28,6 +28,12 @@ async function bootstrap() {
 
   engineEvents.on('position_update', (pos, price) => {
     logger.info(`[POSITION UPDATE] ${pos.instrument} @ ${price}`);
+    // If unrealizedPnL is exactly 0 and it just opened, we can treat it as a new position alert
+    // But better yet, let's just alert if the PnL is 0 which happens right at execution
+    if (pos.unrealizedPnL === 0) {
+      const emoji = pos.action === 'BUY' ? '🟢' : '🔴';
+      TelegramNotifier.sendMessage(`${emoji} *Position Opened: ${pos.instrument}*\nAction: ${pos.action}\nEntry: ${pos.entryPrice}\nStrategy: ${pos.strategy}`);
+    }
   });
 
   engineEvents.on('trade_closed', (trade) => {

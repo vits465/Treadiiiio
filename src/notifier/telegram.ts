@@ -1,6 +1,7 @@
 import https from 'https';
 import { logger } from '../logger';
 import { TradingEngine } from '../engine/tradingEngine';
+import { PriceFeed } from '../data/priceFeed';
 
 export class TelegramNotifier {
   private static botToken: string | undefined;
@@ -8,6 +9,8 @@ export class TelegramNotifier {
   private static enabled = false;
   private static lastUpdateId = 0;
   private static isPolling = false;
+  private static killConfirmPending = false;
+  private static killConfirmTimeout: NodeJS.Timeout | null = null;
 
   public static initialize(token?: string, chat?: string) {
     this.botToken = token;
@@ -71,7 +74,7 @@ export class TelegramNotifier {
       logger.info(`[TELEGRAM] Processing command: ${text}`);
       
       if (text === '/start' || text === '/help') {
-        await this.sendMessage('🤖 Antigravity Command Center\n\nAvailable Commands:\n/status - Check engine status\n/list - View all active trades\n/pause - Stop taking new trades\n/resume - Resume taking trades');
+        await this.sendMessage('🤖 Antigravity Command Center\n\nAvailable Commands:\n/status - Check engine status\n/list - View all active trades\n/pause - Stop taking new trades\n/resume - Resume taking trades\n/kill - EMERGENCY: Pause + close ALL positions\n\n⚠ /kill requires confirmation within 30s');
       }
       
       else if (text === '/status') {
@@ -127,6 +130,46 @@ export class TelegramNotifier {
           TradingEngine.setPaused(false);
           await this.sendMessage('▶ Engine Resumed\nBot is now scanning for new entries.');
         }
+      }
+      
+      else if (text === '/kill') {
+        this.killConfirmPending = true;
+        if (this.killConfirmTimeout) clearTimeout(this.killConfirmTimeout);
+        this.killConfirmTimeout = setTimeout(() => {
+          this.killConfirmPending = false;
+          this.killConfirmTimeout = null;
+        }, 30000);
+        await this.sendMessage('⚠️ *KILL SWITCH WARNING*\nThis will PAUSE the engine AND CLOSE ALL open positions.\n\nType /kill\_confirm within 30 seconds to proceed.');
+      }
+
+      else if (text === '/kill_confirm') {
+        if (!this.killConfirmPending) {
+          await this.sendMessage('❌ No pending kill switch. Send /kill first.');
+          return;
+        }
+        this.killConfirmPending = false;
+        if (this.killConfirmTimeout) {
+          clearTimeout(this.killConfirmTimeout);
+          this.killConfirmTimeout = null;
+        }
+
+        TradingEngine.setPaused(true);
+        const openPositions = TradingEngine.getOpenPositions();
+        let closedCount = 0;
+
+        for (const pos of openPositions) {
+          try {
+            const quote = PriceFeed.getLatestQuote(pos.instrument);
+            if (quote) {
+              await TradingEngine.closePosition(pos.id, quote, 'KILL SWITCH (Telegram)');
+              closedCount++;
+            }
+          } catch (err: any) {
+            logger.error(`[TELEGRAM] Failed to close position ${pos.id}: ${err.message}`);
+          }
+        }
+
+        await this.sendMessage(`🛑 *KILL SWITCH ACTIVATED*\n${closedCount} position(s) closed.\nTrading HALTED.\n\nUse /resume to restart.`);
       }
       
       else {

@@ -12,6 +12,8 @@ import {
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 
+const MotionDiv = motion.div as any;
+
 export default function RiskPage() {
   const [riskStatus, setRiskStatus] = useState<RiskStatus | null>(null);
   const [summary, setSummary] = useState<Summary | null>(null);
@@ -62,11 +64,16 @@ export default function RiskPage() {
   const positionsPct = Math.min(100, (riskStatus.currentOpenPositions / riskStatus.maxConcurrentPositions) * 100);
   const isPosLimitHit = riskStatus.currentOpenPositions >= riskStatus.maxConcurrentPositions;
 
-  const primaryWinRate = summary?.bySource?.ml_signal?.winRate || summary?.bySource?.ma_crossover?.winRate || 0;
-  const recoveryWinRate = summary?.bySource?.loss_recovery?.winRate || 0;
+  const bySource = summary && summary.bySource ? summary.bySource : {};
+  const mlSignal = bySource.ml_signal;
+  const maCrossover = bySource.ma_crossover;
+  const lossRecovery = bySource.loss_recovery;
+
+  const primaryWinRate = (mlSignal && mlSignal.winRate) || (maCrossover && maCrossover.winRate) || 0;
+  const recoveryWinRate = (lossRecovery && lossRecovery.winRate) || 0;
 
   return (
-    <motion.div 
+    <MotionDiv 
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       className="space-y-6"
@@ -82,7 +89,7 @@ export default function RiskPage() {
         <div className="lg:col-span-2 space-y-6">
           
           {/* Daily Drawdown Meter */}
-          <motion.div 
+          <MotionDiv 
             initial={{ opacity: 0, x: -20 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ delay: 0.1 }}
@@ -115,7 +122,7 @@ export default function RiskPage() {
                 <span>Limit: <span className="text-white">${riskStatus.dailyLossLimit.toFixed(2)}</span></span>
               </div>
               <div className="w-full bg-white/[0.02] h-4 rounded-full overflow-hidden border border-white/[0.05] p-0.5">
-                <motion.div 
+                <MotionDiv 
                   initial={{ width: 0 }}
                   animate={{ width: `${dailyLossPct}%` }}
                   transition={{ duration: 1, ease: "easeOut" }}
@@ -126,16 +133,16 @@ export default function RiskPage() {
                         ? 'bg-gradient-to-r from-amber-400 to-orange-500 shadow-[0_0_15px_rgba(251,191,36,0.5)]' 
                         : 'bg-gradient-to-r from-cyan-400 to-blue-500 shadow-[0_0_15px_rgba(34,211,238,0.5)]'
                   }`}
-                ></motion.div>
+                ></MotionDiv>
               </div>
               <p className="text-xs text-slate-500 text-right font-semibold">
                 Remaining Drawdown Budget: <span className="text-emerald-400">${(riskStatus.dailyLossLimit - riskStatus.dailyLossUsed).toFixed(2)}</span>
               </p>
             </div>
-          </motion.div>
+          </MotionDiv>
 
           {/* Concurrent Positions Meter */}
-          <motion.div 
+          <MotionDiv 
             initial={{ opacity: 0, x: -20 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ delay: 0.2 }}
@@ -164,7 +171,7 @@ export default function RiskPage() {
 
             <div className="space-y-3 relative z-10">
               <div className="w-full bg-white/[0.02] h-4 rounded-full overflow-hidden border border-white/[0.05] p-0.5">
-                <motion.div 
+                <MotionDiv 
                   initial={{ width: 0 }}
                   animate={{ width: `${positionsPct}%` }}
                   transition={{ duration: 1, ease: "easeOut" }}
@@ -173,18 +180,18 @@ export default function RiskPage() {
                       ? 'bg-gradient-to-r from-rose-500 to-red-600 shadow-[0_0_15px_rgba(244,63,94,0.5)]' 
                       : 'bg-gradient-to-r from-indigo-400 to-cyan-400 shadow-[0_0_15px_rgba(129,140,248,0.5)]'
                   }`}
-                ></motion.div>
+                ></MotionDiv>
               </div>
               <p className="text-xs text-slate-500 text-right font-semibold">
                 Available slots: <span className="text-cyan-400">{riskStatus.maxConcurrentPositions - riskStatus.currentOpenPositions}</span> positions
               </p>
             </div>
-          </motion.div>
+          </MotionDiv>
 
         </div>
 
         {/* Global Limits Panel */}
-        <motion.div 
+        <MotionDiv 
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ delay: 0.3 }}
@@ -233,7 +240,6 @@ export default function RiskPage() {
                 <span className="text-slate-400">Execution Slippage</span>
                 <span className="text-white font-mono">~0.5 pips</span>
               </div>
-            </div>
 
             <div className="mt-auto pt-6 border-t border-white/[0.05]">
               <div className="bg-cyan-500/5 border border-cyan-500/20 rounded-2xl p-5 text-xs text-slate-300 font-medium leading-relaxed space-y-3 relative overflow-hidden">
@@ -250,9 +256,9 @@ export default function RiskPage() {
               </div>
             </div>
           </div>
-        </motion.div>
+        </MotionDiv>
 
       </div>
-    </motion.div>
+    </MotionDiv>
   );
 }

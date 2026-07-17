@@ -5,6 +5,9 @@ import numpy as np
 from xgboost import XGBClassifier
 from sklearn.metrics import accuracy_score, precision_recall_fscore_support
 from features.engineering import compute_features
+import shap
+import time
+import json
 
 MODEL_DIR = os.path.dirname(os.path.abspath(__file__))
 ARTIFACTS_DIR = os.path.join(MODEL_DIR, "model_artifacts")
@@ -17,21 +20,34 @@ FEATURES = [
 ]
 
 class XGBoostModelManager:
-  def __init__(self, instrument: str):
+  def __init__(self, instrument: str, model_id: str = None):
     self.instrument = instrument
-    safe_name = instrument.lower().replace("/", "_").replace("\\", "_")
-    self.model_path = os.path.join(ARTIFACTS_DIR, f"xgb_{safe_name}.joblib")
+    self.safe_name = instrument.lower().replace("/", "_").replace("\\", "_")
+    self.model_id = model_id or f"xgb_{self.safe_name}_{int(time.time())}"
+    self.model_path = os.path.join(ARTIFACTS_DIR, f"{self.model_id}.joblib")
     self.model = None
+    self.feature_stats = {} # {feature: {'mean': float, 'std': float}}
 
-  def load_model(self):
-    if os.path.exists(self.model_path):
-      self.model = joblib.load(self.model_path)
+  def load_model(self, path=None):
+    load_path = path or self.model_path
+    if os.path.exists(load_path):
+      saved_data = joblib.load(load_path)
+      # Support legacy format (just the model) or new format (dict with model and stats)
+      if isinstance(saved_data, dict) and 'model' in saved_data:
+        self.model = saved_data['model']
+        self.feature_stats = saved_data.get('feature_stats', {})
+      else:
+        self.model = saved_data
       return True
     return False
 
   def save_model(self):
     if self.model is not None:
-      joblib.dump(self.model, self.model_path)
+      data_to_save = {
+        'model': self.model,
+        'feature_stats': self.feature_stats
+      }
+      joblib.dump(data_to_save, self.model_path)
 
   def prepare_labels(self, df: pd.DataFrame, forward_periods: int = 5, threshold_pct: float = 0.0005):
     """
@@ -73,6 +89,7 @@ class XGBoostModelManager:
     
     # Drop rows with NaNs in features
     df_clean = df_labeled.dropna(subset=FEATURES + ['target'])
+    df_clean = df_clean.loc[:, ~df_clean.columns.duplicated()]
     if len(df_clean) < 50:
       raise ValueError("Insufficient data remaining after cleaning features.")
 
@@ -102,6 +119,14 @@ class XGBoostModelManager:
     )
     
     self.model.fit(X_train, y_train)
+
+    # Compute and store feature distributions
+    for feature in FEATURES:
+        self.feature_stats[feature] = {
+            'mean': float(X_train[feature].mean()),
+            'std': float(X_train[feature].std())
+        }
+
     self.save_model()
 
     # 4. Evaluate out-of-sample metrics
@@ -125,17 +150,36 @@ class XGBoostModelManager:
       win_rate = float(correct_trades / total_trades)
 
     metrics = {
+        "model_id": self.model_id,
         "dataset_size": len(df_clean),
         "train_size": len(train_df),
         "test_size": len(test_df),
         "accuracy": float(accuracy),
         "precision": float(precision),
         "recall": float(recall),
-        "f1_score": float(f1),
-        "test_trades": int(total_trades),
-        "test_win_rate": win_rate
+        "f1": float(f1),
+        "total_test_trades": int(total_trades),
+        "win_rate": win_rate
     }
     
+    # Calculate SHAP feature importance
+    try:
+        explainer = shap.TreeExplainer(self.model)
+        # TreeExplainer on multi-class returns a list of shape (classes, n_samples, n_features)
+        shap_values = explainer.shap_values(X_test)
+        if isinstance(shap_values, list):
+            # Take absolute mean across all samples and classes
+            mean_abs_shap = np.abs(shap_values).mean(axis=(0, 1))
+        else:
+            mean_abs_shap = np.abs(shap_values).mean(axis=0)
+
+        importance_dict = {feat: float(score) for feat, score in zip(FEATURES, mean_abs_shap)}
+        # Sort and take top 5
+        top_features = dict(sorted(importance_dict.items(), key=lambda item: item[1], reverse=True)[:5])
+        metrics["top_features"] = top_features
+    except Exception as e:
+        metrics["top_features"] = {"error": str(e)}
+
     return metrics
 
   def predict(self, recent_candles: list) -> dict:

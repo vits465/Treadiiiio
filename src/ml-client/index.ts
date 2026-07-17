@@ -11,6 +11,7 @@ export class MLClient {
     baseURL: config.ML_SERVICE_URL,
     headers: {
       'Content-Type': 'application/json',
+      'X-API-Key': config.API_SECRET_KEY,
     },
     timeout: 15000, // 15s timeout
   });
@@ -45,16 +46,7 @@ export class MLClient {
       }
 
       try {
-        db.prepare(`
-          CREATE TABLE IF NOT EXISTS ml_confidence_log (
-            id TEXT PRIMARY KEY,
-            signal_time TEXT,
-            instrument TEXT,
-            confidence REAL,
-            action TEXT
-          )
-        `).run();
-        
+        // ml_confidence_log table is created by schema in initDb()
         db.prepare(`
           INSERT INTO ml_confidence_log (id, signal_time, instrument, confidence, action)
           VALUES (?, ?, ?, ?, ?)
@@ -66,16 +58,16 @@ export class MLClient {
       return {
         action: prediction.action as SignalAction,
         instrument,
-        strategy: 'ml_signal',
+        strategy: 'ml_xgb',
         confidence: prediction.confidence,
-        stopLossPips: 15, // safe SL
-        takeProfitPips: 30, // safe TP
+        atr: prediction.atr,
       };
     } catch (error: any) {
-      logger.error(`ML Client predict failed for ${instrument}: ${error.message}`);
       if (error.response && error.response.status === 404) {
-        throw new Error('MODEL_NOT_FOUND');
+        logger.warn(`No trained ML model found for ${instrument}. Skipping ML prediction.`);
+        return null;
       }
+      logger.error(`ML Client predict failed for ${instrument}: ${error.message}`);
       return null;
     }
   }

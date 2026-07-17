@@ -61,9 +61,26 @@ def compute_features(df: pd.DataFrame) -> pd.DataFrame:
     df.ffill(inplace=True)
 
     # --- 8. Strategy Indicator Encodings ---
-    close = df['close']
-    df['feat_ma_crossover'] = np.where(df['sma_9'] > df['sma_21'], 1.0, -1.0)
-    df['feat_rsi_reversion'] = np.where(df['rsi_14'] < 30, 1.0, np.where(df['rsi_14'] > 70, -1.0, 0.0))
-    df['feat_bollinger_reversion'] = np.where(close < df['bb_lower'], 1.0, np.where(close > df['bb_upper'], -1.0, 0.0))
+    close_vals = np.asarray(df['close']).squeeze()
+    sma9_vals = np.asarray(df['sma_9']).squeeze()
+    sma21_vals = np.asarray(df['sma_21']).squeeze()
+    rsi14_vals = np.asarray(df['rsi_14']).squeeze()
+    bb_lower_vals = np.asarray(df['bb_lower']).squeeze()
+    bb_upper_vals = np.asarray(df['bb_upper']).squeeze()
+
+    # If any is still 2D, take the first column
+    if bb_lower_vals.ndim > 1: bb_lower_vals = bb_lower_vals[:, 0]
+    if bb_upper_vals.ndim > 1: bb_upper_vals = bb_upper_vals[:, 0]
+    if sma9_vals.ndim > 1: sma9_vals = sma9_vals[:, 0]
+    if sma21_vals.ndim > 1: sma21_vals = sma21_vals[:, 0]
+    if rsi14_vals.ndim > 1: rsi14_vals = rsi14_vals[:, 0]
+    if close_vals.ndim > 1: close_vals = close_vals[:, 0]
+
+    df['feat_ma_crossover'] = np.where(sma9_vals > sma21_vals, 1.0, -1.0)
+    df['feat_rsi_reversion'] = np.where(rsi14_vals < 30, 1.0, np.where(rsi14_vals > 70, -1.0, 0.0))
+    df['feat_bollinger_reversion'] = np.where(close_vals < bb_lower_vals, 1.0, np.where(close_vals > bb_upper_vals, -1.0, 0.0))
     
+    # Drop duplicate columns to prevent DataFrame indexing issues in XGBoost
+    df = df.loc[:, ~df.columns.duplicated()]
+
     return df

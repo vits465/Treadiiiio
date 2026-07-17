@@ -11,15 +11,21 @@
   },
   "dependencies": {
     "axios": "^1.7.2",
+    "better-sqlite3": "^12.11.1",
+    "date-fns": "^4.4.0",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
+    "express-rate-limit": "^8.6.0",
+    "fast-xml-parser": "^5.10.1",
     "node-cron": "^3.0.3",
     "uuid": "^9.0.1",
     "winston": "^3.13.0",
+    "winston-daily-rotate-file": "^5.0.0",
     "ws": "^8.17.0",
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
     "@types/express": "^4.17.21",
     "@types/jest": "^29.5.12",
     "@types/node": "^20.14.2",

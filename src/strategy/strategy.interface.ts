@@ -8,6 +8,7 @@ export interface Signal {
   instrument: string;
   strategy: string;
   confidence?: number; // 0 to 1
+  atr?: number; // Added for ATR-based TP/SL sizing
   stopLossPips?: number;
   takeProfitPips?: number;
   amountToRecover?: number;

@@ -4,9 +4,12 @@ import { logger } from '../logger';
 import { Quote } from '../data/priceFeed';
 import { PositionInfo } from '../strategy/strategy.interface';
 import { RiskManager } from '../risk/riskManager';
+import { TimeFilter } from '../risk/timeFilter';
+import { NewsFilter } from '../risk/newsFilter';
 import { v4 as uuidv4 } from 'uuid';
 import { EventEmitter } from 'events';
 import { MT5Client } from '../broker/mt5Client';
+import { TelegramNotifier } from '../notifier/telegram';
 
 export const engineEvents = new EventEmitter();
 
@@ -104,33 +107,52 @@ export class TradingEngine {
     quote: Quote,
     stopLossPips?: number,
     takeProfitPips?: number,
-    amountToRecover?: number
+    amountToRecover?: number,
+    atr?: number
   ): Promise<string | null> {
-    
-    // High-Impact News Filter (Block 12:30 PM - 2:00 PM UTC)
-    const now = new Date();
-    const utcHour = now.getUTCHours();
-    const utcMin = now.getUTCMinutes();
-    const isVolatileWindow = (utcHour === 12 && utcMin >= 30) || (utcHour === 13);
-    if (isVolatileWindow && strategy !== 'manual') {
-      logger.warn(`[NEWS FILTER] Rejected automated ${action} signal for ${instrument} due to high-impact news window (12:30-14:00 UTC).`);
+    if (this.paused) {
+      logger.debug('Engine is paused, rejecting order.');
+      return null;
+    }
+
+    if (!RiskManager.checkTradeDirection(action, instrument)) {
+      return null;
+    }
+
+    const timeCheck = TimeFilter.canTrade();
+    if (!timeCheck.allowed) {
+      logger.warn(`[TIME FILTER] Rejected automated ${action} signal for ${instrument}. Reason: ${timeCheck.reason}`);
+      const { RejectionLogger } = require('../risk/rejectionLogger');
+      RejectionLogger.log('TradingEngine.timeFilter', timeCheck.reason || 'TIME_FILTER', instrument, action, strategy, 'Outside allowed trading window');
+      return null;
+    }
+
+    const newsCheck = await NewsFilter.canTrade(instrument);
+    if (!newsCheck.allowed) {
+      logger.warn(`[NEWS FILTER] Rejected automated ${action} signal for ${instrument}. Reason: ${newsCheck.reason}`);
+      const { RejectionLogger } = require('../risk/rejectionLogger');
+      RejectionLogger.log('TradingEngine.newsFilter', 'NEWS_WINDOW', instrument, action, strategy, newsCheck.reason);
       return null;
     }
 
     const openCount = this.getOpenPositionsCount();
 
-    if (!RiskManager.checkPositionLimit(openCount)) {
+    if (!RiskManager.checkPositionLimit(openCount, instrument)) {
       return null;
     }
 
     const openPositions = this.getOpenPositions();
     const currentUnrealized = openPositions.reduce((acc, pos) => acc + pos.unrealizedPnL, 0);
     
-    if (!RiskManager.checkDailyLossLimit(this.balance, currentUnrealized)) {
+    if (!RiskManager.checkDailyProfitLock(this.balance, currentUnrealized, instrument)) {
       return null;
     }
 
-    if (!RiskManager.checkWeeklyLossLimit(this.balance, currentUnrealized)) {
+    if (!RiskManager.checkDailyLossLimit(this.balance, currentUnrealized, instrument)) {
+      return null;
+    }
+
+    if (!RiskManager.checkWeeklyLossLimit(this.balance, currentUnrealized, instrument)) {
       return null;
     }
 
@@ -138,7 +160,19 @@ export class TradingEngine {
       return null;
     }
 
-    const slPips = stopLossPips || 15;
+    const isJpy = instrument.includes('JPY');
+    const pipSize = isJpy ? 0.01 : 0.0001;
+    
+    let slPips = stopLossPips || 15;
+    let tpPips = takeProfitPips || 30;
+
+    if (config.USE_ATR_SIZING && atr && atr > 0) {
+      // ATR is in raw price points. Convert to pips.
+      const atrPips = atr / pipSize;
+      slPips = atrPips * config.ATR_SL_MULTIPLIER;
+      tpPips = atrPips * config.ATR_TP_MULTIPLIER;
+      logger.info(`[ATR SIZING] Used ATR (${atr.toFixed(5)}) for ${instrument} to calculate SL: ${slPips.toFixed(1)} pips, TP: ${tpPips.toFixed(1)} pips`);
+    }
     
     let units = 0;
     if (amountToRecover && amountToRecover > 0) {
@@ -150,14 +184,15 @@ export class TradingEngine {
 
     if (units <= 0) {
       logger.warn(`Calculated unit size is 0 for ${instrument}. Cancelling execution.`);
+      const { RejectionLogger } = require('../risk/rejectionLogger');
+      RejectionLogger.log('TradingEngine.executeOrder', 'ZERO_UNITS', instrument, action, strategy, 'Position size calculated as 0');
       return null;
     }
 
-    const isJpy = instrument.includes('JPY');
-    const pipSize = isJpy ? 0.01 : 0.0001;
+    // Pip size handled earlier
     const newPositionRiskPct = ((units * slPips * pipSize) / this.balance) * 100;
 
-    if (!RiskManager.checkTotalOpenRisk(this.balance, openPositions, newPositionRiskPct)) {
+    if (!RiskManager.checkTotalOpenRisk(this.balance, openPositions, newPositionRiskPct, instrument)) {
       return null;
     }
 
@@ -167,7 +202,8 @@ export class TradingEngine {
     if (volume < 0.01) volume = 0.01; // Enforce minimum 0.01 lot
 
     // Call MT5 API
-    const mt5Result = await MT5Client.placeOrder(instrument, action, volume, stopLossPips, takeProfitPips);
+    const requestedPrice = action === 'BUY' ? quote.ask : quote.bid;
+    const mt5Result = await MT5Client.placeOrder(instrument, action, volume, slPips, tpPips, requestedPrice);
     
     if (!mt5Result) {
       logger.error(`MT5 execution failed for ${instrument} ${action}. Local DB not updated.`);
@@ -182,32 +218,21 @@ export class TradingEngine {
     let slPrice: number | null = null;
     let tpPrice: number | null = null;
 
-    if (stopLossPips) {
+    if (slPips) {
       slPrice = action === 'BUY'
-        ? entryPrice - stopLossPips * pipSize
-        : entryPrice + stopLossPips * pipSize;
+        ? entryPrice - slPips * pipSize
+        : entryPrice + slPips * pipSize;
       slPrice = parseFloat(slPrice.toFixed(isJpy ? 3 : 5));
     }
 
-    if (takeProfitPips) {
+    if (tpPips) {
       tpPrice = action === 'BUY'
-        ? entryPrice + takeProfitPips * pipSize
-        : entryPrice - takeProfitPips * pipSize;
+        ? entryPrice + tpPips * pipSize
+        : entryPrice - tpPips * pipSize;
       tpPrice = parseFloat(tpPrice.toFixed(isJpy ? 3 : 5));
     }
 
-    try {
-      // Check if column broker_order_id exists, if not add it
-      db.prepare(`
-        ALTER TABLE positions ADD COLUMN broker_order_id TEXT
-      `).run();
-    } catch (e) {} // Column probably exists
-
-    try {
-      db.prepare(`
-        ALTER TABLE trades ADD COLUMN broker_order_id TEXT
-      `).run();
-    } catch (e) {}
+    // broker_order_id columns are now created by schema in initDb()
 
     db.prepare(`
       INSERT INTO positions (id, instrument, action, entry_time, entry_price, units, unrealized_pnl, stop_loss, take_profit, strategy, broker_order_id)
@@ -296,11 +321,7 @@ export class TradingEngine {
     const mt5Positions = await MT5Client.getPositions();
     const mt5Ids = new Set(mt5Positions.map(p => p.order_id));
 
-    // Ensure trailing stop columns exist
-    try {
-      db.prepare(`ALTER TABLE positions ADD COLUMN max_favorable_price REAL`).run();
-      db.prepare(`ALTER TABLE positions ADD COLUMN trailing_stop_pips REAL`).run();
-    } catch (e) {} // Exists
+    // max_favorable_price and trailing_stop_pips columns are now created by schema in initDb()
 
     for (const pos of localPositions) {
       const quote = quotes.find((q) => q.instrument === pos.instrument);
@@ -390,6 +411,7 @@ export class TradingEngine {
     if (currentEquity < circuitBreakerLevel && !this.isPaused()) {
       logger.error(`🚨 EQUITY CIRCUIT BREAKER TRIGGERED 🚨 Equity ($${currentEquity.toFixed(2)}) dropped below ${config.RISK_MAX_DRAWDOWN_PCT}% drawdown limit ($${circuitBreakerLevel.toFixed(2)}). Halting trading.`);
       this.setPaused(true);
+      TelegramNotifier.sendMessage(`🚨 *CIRCUIT BREAKER TRIGGERED*\nEquity: $${currentEquity.toFixed(2)}\nLimit: $${circuitBreakerLevel.toFixed(2)} (${config.RISK_MAX_DRAWDOWN_PCT}% drawdown)\nTrading HALTED. Use /resume to restart.`);
       this.saveEquitySnapshot(totalUnrealized);
     }
   }

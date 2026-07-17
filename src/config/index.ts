@@ -33,6 +33,25 @@ const envSchema = z.object({
   ENABLED_STRATEGIES: z.string().transform((val) => val.split(',').map((s) => s.trim())),
   TELEGRAM_BOT_TOKEN: z.string().optional(),
   TELEGRAM_CHAT_ID: z.string().optional(),
+  API_SECRET_KEY: z.string().min(16, 'API_SECRET_KEY must be at least 16 characters'),
+  CORS_ALLOWED_ORIGIN: z.string().default('http://localhost:3000'),
+  
+  // Phase 2: Trade Gating Controls
+  TRADING_SESSIONS: z.string().transform((val) => val.split(',').map(s => s.trim().toUpperCase())).default('LONDON,NY'),
+  TRADING_DAYS: z.string().transform((val) => val.split(',').map(d => parseInt(d.trim(), 10))).default('1,2,3,4,5'), // 1=Mon, 5=Fri
+  NEWS_BLACKOUT_MINUTES_BEFORE: z.string().transform((val) => parseInt(val, 10)).default('30'),
+  NEWS_BLACKOUT_MINUTES_AFTER: z.string().transform((val) => parseInt(val, 10)).default('30'),
+  NEWS_RESTRICT_IMPACT: z.string().transform((val) => val.split(',').map(i => i.trim().toUpperCase())).default('HIGH'),
+  RISK_DAILY_PROFIT_LOCK_PCT: z.string().transform((val) => parseFloat(val)).default('3.0'),
+  TRADE_DIRECTION: z.enum(['BUY_ONLY', 'SELL_ONLY', 'BOTH']).default('BOTH'),
+  HOLIDAY_GUARD_ENABLED: z.string().transform((val) => val.toLowerCase() === 'true').default('true'),
+
+  // Phase 3: Execution Quality
+  USE_ATR_SIZING: z.string().transform((val) => val.toLowerCase() === 'true').default('true'),
+  ATR_SL_MULTIPLIER: z.string().transform((val) => parseFloat(val)).default('1.5'),
+  ATR_TP_MULTIPLIER: z.string().transform((val) => parseFloat(val)).default('3.0'),
+  ALERT_LATENCY_MS: z.string().transform((val) => parseInt(val, 10)).default('500'),
+  ALERT_SLIPPAGE_PIPS: z.string().transform((val) => parseFloat(val)).default('2.0'),
 });
 
 const parsed = envSchema.safeParse(process.env);

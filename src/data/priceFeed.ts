@@ -117,9 +117,9 @@ export class PriceFeed {
    * Fetches latest bid/ask quotes for currency pairs via MT5 Client.
    */
   public static async fetchLatestQuotes(instruments: string[]): Promise<Quote[]> {
-    if (config.USE_SIMULATOR && !config.USE_REAL_PRICES) {
+    if (config.USE_SIMULATOR || !config.USE_REAL_PRICES) {
       return instruments.map((inst) => {
-        const basePrice = simPrices[inst] || 1.0000;
+        const basePrice = simPrices[inst] || (inst.includes('JPY') ? 155.50 : 1.0850);
         const vol = basePrice * 0.0001; // 0.01% volatility per tick
         const change = (Math.random() - 0.5) * vol;
         const newMid = basePrice + change;
@@ -139,58 +139,54 @@ export class PriceFeed {
     }
 
     try {
-      if (config.USE_REAL_PRICES) {
-        logger.debug(`Fetching live quotes from Twelve Data for: ${instruments.join(',')}`);
-        const quotes: Quote[] = [];
+      logger.debug(`Fetching live quotes from Twelve Data for: ${instruments.join(',')}`);
+      const quotes: Quote[] = [];
+      
+      for (const inst of instruments) {
+        const response = await axios.get(`${this.baseURL}/price`, {
+          params: {
+            symbol: inst,
+            apikey: config.TWELVE_DATA_API_KEY,
+          },
+        });
         
-        for (const inst of instruments) {
-          const response = await axios.get(`${this.baseURL}/price`, {
-            params: {
-              symbol: inst,
-              apikey: config.TWELVE_DATA_API_KEY,
-            },
+        if (response.data && response.data.price) {
+          const basePrice = parseFloat(response.data.price);
+          const spread = SPREADS[inst] || (inst.includes('JPY') ? 0.015 : 0.00015);
+          quotes.push({
+            instrument: inst,
+            time: new Date().toISOString(),
+            bid: parseFloat((basePrice - spread / 2).toFixed(inst.includes('JPY') ? 3 : 5)),
+            ask: parseFloat((basePrice + spread / 2).toFixed(inst.includes('JPY') ? 3 : 5))
           });
-          
-          if (response.data && response.data.price) {
-            const basePrice = parseFloat(response.data.price);
-            const spread = SPREADS[inst] || (inst.includes('JPY') ? 0.015 : 0.00015);
-            quotes.push({
-              instrument: inst,
-              time: new Date().toISOString(),
-              bid: parseFloat((basePrice - spread / 2).toFixed(inst.includes('JPY') ? 3 : 5)),
-              ask: parseFloat((basePrice + spread / 2).toFixed(inst.includes('JPY') ? 3 : 5))
-            });
-          } else {
-            logger.error(`Twelve Data price fetch failed for ${inst}: ${JSON.stringify(response.data)}`);
-          }
+        } else {
+          logger.error(`Twelve Data price fetch failed for ${inst}: ${JSON.stringify(response.data)}`);
         }
+      }
+
+      if (quotes.length === instruments.length) {
         return quotes;
       }
 
-      logger.debug(`Fetching live quotes from MT5 for: ${instruments.join(',')}`);
-      
-      const quotes: Quote[] = [];
-      const { MT5Client } = require('../broker/mt5Client');
+      // If missing quotes, fallback to simulated quotes for missing
+      return instruments.map((inst) => quotes.find(q => q.instrument === inst) || {
+        instrument: inst,
+        time: new Date().toISOString(),
+        bid: simPrices[inst] || 1.0850,
+        ask: (simPrices[inst] || 1.0850) + 0.00015
+      });
 
-      for (const inst of instruments) {
-        const tick = await MT5Client.getQuote(inst);
-        if (tick) {
-          quotes.push({
-            instrument: inst,
-            time: new Date(tick.time * 1000).toISOString(),
-            bid: tick.bid,
-            ask: tick.ask
-          });
-        }
-      }
-
-      return quotes;
     } catch (error: any) {
-      logger.error(`MT5 quote fetch failed: ${error.message}. Using simulator fallback.`);
-      config.USE_SIMULATOR = true;
-      const fallback = await this.fetchLatestQuotes(instruments);
-      config.USE_SIMULATOR = false;
-      return fallback;
+      logger.error(`Quote fetch failed: ${error.message}. Using simulator fallback.`);
+      return instruments.map((inst) => {
+        const basePrice = simPrices[inst] || 1.0850;
+        return {
+          instrument: inst,
+          time: new Date().toISOString(),
+          bid: basePrice - 0.0001,
+          ask: basePrice + 0.0001,
+        };
+      });
     }
   }
 
@@ -228,7 +224,7 @@ export class PriceFeed {
    */
   public static saveCandlesToDb(candles: Candle[]) {
     const insert = db.prepare(`
-      INSERT INTO candles (time, instrument, granularity, open, high, low, close, volume)
+      INSERT OR REPLACE INTO candles (time, instrument, granularity, open, high, low, close, volume)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `);
 

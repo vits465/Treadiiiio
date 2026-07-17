@@ -9,17 +9,72 @@ import { PriceFeed } from '../data/priceFeed';
 import { MLClient } from '../ml-client';
 import { runMonteCarlo } from '../analysis/monteCarlo';
 import { RiskManager } from '../risk/riskManager';
+import { apiKeyAuth, validateWsApiKey } from './authMiddleware';
+import rateLimit from 'express-rate-limit';
+import axios from 'axios';
 
 const app = express();
 app.use(express.json());
 
-// Enable CORS
+// CORS — restricted to configured origin (not wildcard)
 app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.header('Access-Control-Allow-Origin', config.CORS_ALLOWED_ORIGIN);
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, X-API-Key');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PATCH, OPTIONS');
+  if (req.method === 'OPTIONS') {
+    res.sendStatus(204);
+    return;
+  }
   next();
 });
+
+// Rate limiters for sensitive endpoints
+const configRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 5,
+  message: { error: 'Too many config update requests — try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const tradeRateLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 30,
+  message: { error: 'Too many trade requests — try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Public endpoints (no auth): /api/health
+app.get('/api/health', async (req, res) => {
+  try {
+    let dbConnected = false;
+    try {
+      const row = db.prepare('SELECT 1 as ok').get() as any;
+      dbConnected = row?.ok === 1;
+    } catch { dbConnected = false; }
+
+    let mlServiceReachable = false;
+    try {
+      const resp = await axios.get(`${config.ML_SERVICE_URL}/health`, { timeout: 3000 });
+      mlServiceReachable = resp.data?.status === 'ok';
+    } catch { mlServiceReachable = false; }
+
+    res.json({
+      status: 'ok',
+      enginePaused: TradingEngine.isPaused(),
+      dbConnected,
+      mlServiceReachable,
+      uptime: process.uptime(),
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Apply auth middleware to all /api/* routes AFTER the health endpoint
+app.use('/api', apiKeyAuth);
 
 const server = http.createServer(app);
 const wss = new WebSocketServer({ noServer: true });
@@ -110,10 +165,18 @@ engineEvents.on('equity_tick', ({ balance, equity, timestamp }) => {
   });
 });
 
-// Upgrade HTTP to WS connection on /ws path
+// Upgrade HTTP to WS connection on /ws path (with API key validation)
 server.on('upgrade', (request, socket, head) => {
-  const pathname = new URL(request.url || '', `http://${request.headers.host}`).pathname;
+  const url = request.url || '';
+  const pathname = new URL(url, `http://${request.headers.host}`).pathname;
   if (pathname === '/ws') {
+    // Validate API key for WebSocket connections
+    if (!validateWsApiKey(url, request.headers as Record<string, string | string[] | undefined>)) {
+      logger.warn(`[AUTH] Rejected WebSocket connection — invalid API key from ${request.socket.remoteAddress}`);
+      socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+      socket.destroy();
+      return;
+    }
     wss.handleUpgrade(request, socket, head, (ws) => {
       wss.emit('connection', ws, request);
     });
@@ -473,6 +536,32 @@ app.post('/api/bot/start', (req, res) => {
   res.json({ paused: false });
 });
 
+// Kill Switch — pause AND flatten all open positions
+app.post('/api/bot/kill', async (req, res) => {
+  try {
+    TradingEngine.setPaused(true);
+    const openPositions = TradingEngine.getOpenPositions();
+    let closedCount = 0;
+
+    for (const pos of openPositions) {
+      const quote = PriceFeed.getLatestQuote(pos.instrument);
+      if (quote) {
+        await TradingEngine.closePosition(pos.id, quote, 'KILL SWITCH');
+        closedCount++;
+      }
+    }
+
+    // Telegram alert is sent by tradingEngine's trade_closed event + the TelegramNotifier import
+    const { TelegramNotifier } = require('../notifier/telegram');
+    TelegramNotifier.sendMessage(`🛑 *KILL SWITCH ACTIVATED*\n${closedCount} position(s) closed. Trading HALTED.`);
+
+    logger.warn(`🛑 KILL SWITCH ACTIVATED — ${closedCount} positions force-closed.`);
+    res.json({ killed: true, closedCount });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/api/bot/restart', (req, res) => {
   logger.info('Dashboard triggered engine soft restart.');
   TradingEngine.initialize();
@@ -481,7 +570,7 @@ app.post('/api/bot/restart', (req, res) => {
 
 // Manual Trading Endpoints
 
-app.post('/api/trade/execute', async (req, res) => {
+app.post('/api/trade/execute', tradeRateLimiter, async (req, res) => {
   try {
     const { instrument, action, stopLoss, takeProfit } = req.body;
     const quote = PriceFeed.getLatestQuote(instrument);
@@ -527,7 +616,7 @@ app.get('/api/config', (req, res) => {
   });
 });
 
-app.post('/api/config', (req, res) => {
+app.post('/api/config', configRateLimiter, (req, res) => {
   try {
     const { RISK_MAX_POSITION_SIZE_PCT, CURRENCY_PAIRS, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID } = req.body;
     const envPath = path.resolve(process.cwd(), '.env');
@@ -558,6 +647,41 @@ app.post('/api/config', (req, res) => {
     }, 1000);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// Rejection Audit Log endpoint
+app.get('/api/rejections', (req, res) => {
+  try {
+    const instrument = req.query.instrument as string | undefined;
+    const filterName = req.query.filter_name as string | undefined;
+    const limit = parseInt(req.query.limit as string) || 100;
+    const offset = parseInt(req.query.offset as string) || 0;
+
+    let sql = 'SELECT * FROM filter_rejections';
+    const conditions: string[] = [];
+    const params: any[] = [];
+
+    if (instrument) {
+      conditions.push('instrument = ?');
+      params.push(instrument);
+    }
+    if (filterName) {
+      conditions.push('filter_name = ?');
+      params.push(filterName);
+    }
+
+    if (conditions.length > 0) {
+      sql += ' WHERE ' + conditions.join(' AND ');
+    }
+
+    sql += ' ORDER BY timestamp DESC LIMIT ? OFFSET ?';
+    params.push(limit, offset);
+
+    const rows = db.prepare(sql).all(...params);
+    res.json({ rejections: rows, total: rows.length });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
   }
 });
 

@@ -3,6 +3,8 @@ process.env.DB_PATH = ':memory:';
 process.env.USE_SIMULATOR = 'true';
 process.env.CURRENCY_PAIRS = 'EUR_USD';
 process.env.STARTING_BALANCE = '10000';
+process.env.API_SECRET_KEY = 'test_api_key_for_unit_tests_1234';
+process.env.CORS_ALLOWED_ORIGIN = 'http://localhost:3000';
 
 import { initDb, db } from '../src/db';
 import { TradingEngine } from '../src/engine/tradingEngine';
@@ -19,15 +21,24 @@ jest.mock('../src/broker/mt5Client', () => ({
   }
 }));
 
+// Mock TelegramNotifier to avoid actual API calls in tests
+jest.mock('../src/notifier/telegram', () => ({
+  TelegramNotifier: {
+    sendMessage: jest.fn(),
+    initialize: jest.fn(),
+  }
+}));
+
 describe('TradingEngine Unit Tests', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     try {
-      db.prepare('DROP TABLE IF EXISTS positions').run();
-      db.prepare('DROP TABLE IF EXISTS trades').run();
-      db.prepare('DROP TABLE IF EXISTS candles').run();
-      db.prepare('DROP TABLE IF EXISTS equity_snapshots').run();
-      db.prepare('DROP TABLE IF EXISTS model_runs').run();
+      db.prepare('DELETE FROM positions').run();
+      db.prepare('DELETE FROM trades').run();
+      db.prepare('DELETE FROM candles').run();
+      db.prepare('DELETE FROM equity_snapshots').run();
+      db.prepare('DELETE FROM model_runs').run();
+      db.prepare('DELETE FROM filter_rejections').run();
     } catch (e) {}
     
     initDb();
