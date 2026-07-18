@@ -10,6 +10,23 @@ let database: Database.Database;
 const jsonDbPath = path.resolve(path.dirname(config.absoluteDbPath), 'forex_bot_db.json');
 
 /**
+ * Adds a column to a table if it does not already exist.
+ * Uses PRAGMA table_info to check — safe for pre-existing DBs.
+ */
+function ensureColumn(tableName: string, columnName: string, columnDef: string): void {
+  try {
+    const cols = database.pragma(`table_info(${tableName})`) as Array<{ name: string }>;
+    const exists = cols.some((c) => c.name === columnName);
+    if (!exists) {
+      database.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnDef}`);
+      logger.info(`DB migration: added column ${tableName}.${columnName}`);
+    }
+  } catch (err) {
+    logger.warn(`ensureColumn(${tableName}.${columnName}) failed: ${err}`);
+  }
+}
+
+/**
  * Initializes the real SQLite database with better-sqlite3.
  * Creates all tables and migrates from JSON if needed.
  */
@@ -61,7 +78,8 @@ export function initDb() {
       pnl REAL,
       strategy TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'OPEN',
-      broker_order_id TEXT
+      broker_order_id TEXT,
+      risk_pct REAL
     );
 
     CREATE TABLE IF NOT EXISTS positions (
@@ -99,7 +117,8 @@ export function initDb() {
       signal_time TEXT,
       instrument TEXT,
       confidence REAL,
-      action TEXT
+      action TEXT,
+      accepted INTEGER DEFAULT 1
     );
 
     CREATE TABLE IF NOT EXISTS filter_rejections (
@@ -110,7 +129,8 @@ export function initDb() {
       instrument TEXT NOT NULL,
       direction TEXT,
       strategy TEXT,
-      details TEXT
+      details TEXT,
+      ml_confidence REAL
     );
   `);
 
@@ -119,10 +139,16 @@ export function initDb() {
     CREATE INDEX IF NOT EXISTS idx_candles_instrument_granularity ON candles(instrument, granularity);
     CREATE INDEX IF NOT EXISTS idx_trades_status ON trades(status);
     CREATE INDEX IF NOT EXISTS idx_trades_exit_time ON trades(exit_time);
+    CREATE INDEX IF NOT EXISTS idx_trades_strategy ON trades(strategy);
     CREATE INDEX IF NOT EXISTS idx_positions_instrument ON positions(instrument);
     CREATE INDEX IF NOT EXISTS idx_filter_rejections_timestamp ON filter_rejections(timestamp);
     CREATE INDEX IF NOT EXISTS idx_filter_rejections_instrument ON filter_rejections(instrument);
   `);
+
+  // In-place migrations for pre-existing databases (PRAGMA-based, idempotent)
+  ensureColumn('trades', 'risk_pct', 'REAL');
+  ensureColumn('ml_confidence_log', 'accepted', 'INTEGER DEFAULT 1');
+  ensureColumn('filter_rejections', 'ml_confidence', 'REAL');
 
   // Migrate from JSON if this is a fresh file-based DB and JSON file exists
   if (!isMemory) {

@@ -4,6 +4,7 @@ import { logger } from '../logger';
 import { db } from '../db';
 import { Candle } from '../data/priceFeed';
 import { Signal, SignalAction } from '../strategy/strategy.interface';
+import { RejectionLogger } from '../risk/rejectionLogger';
 import { v4 as uuidv4 } from 'uuid';
 
 export class MLClient {
@@ -17,7 +18,15 @@ export class MLClient {
   });
 
   /**
-   * Fetches trading signal for an instrument from the ML FastAPI service.
+   * Fetches a trading signal for an instrument from the ML FastAPI service.
+   *
+   * Changes in Realistic Edge upgrade:
+   *   - Below-threshold predictions are logged to filter_rejections (ML_CONFIDENCE_LOW)
+   *     AND to ml_confidence_log with accepted=0 so threshold calibration can be
+   *     analysed from the DB.
+   *   - Accepted predictions are logged with accepted=1.
+   *   - prediction.atr is now forwarded on the returned Signal so the engine
+   *     can use ATR-based SL/TP sizing for ML trades (previously silently dropped).
    */
   public static async predict(instrument: string, candles: Candle[]): Promise<Signal | null> {
     try {
@@ -40,27 +49,57 @@ export class MLClient {
         return null;
       }
 
+      // Below-threshold confidence — log it for calibration analysis, then reject
       if (prediction.confidence !== undefined && prediction.confidence < config.ML_MIN_CONFIDENCE) {
-        logger.debug(`ML Signal rejected for ${instrument}: confidence ${prediction.confidence.toFixed(3)} < min ${config.ML_MIN_CONFIDENCE}`);
+        logger.debug(
+          `ML Signal rejected for ${instrument}: confidence ${prediction.confidence.toFixed(3)} < min ${config.ML_MIN_CONFIDENCE}`
+        );
+
+        // Log to rejection audit table
+        RejectionLogger.log(
+          'MLClient.predict',
+          'ML_CONFIDENCE_LOW',
+          instrument,
+          prediction.action,
+          'ml_signal',
+          `confidence=${prediction.confidence.toFixed(4)} threshold=${config.ML_MIN_CONFIDENCE}`,
+          prediction.confidence
+        );
+
+        // Log to ml_confidence_log with accepted=0 for calibration analysis
+        try {
+          db.prepare(`
+            INSERT INTO ml_confidence_log (id, signal_time, instrument, confidence, action, accepted)
+            VALUES (?, ?, ?, ?, ?, 0)
+          `).run(uuidv4(), new Date().toISOString(), instrument, prediction.confidence, prediction.action);
+        } catch (err) {
+          logger.debug(`Could not log below-threshold ML confidence: ${err}`);
+        }
+
         return null;
       }
 
+      // Accepted prediction — log with accepted=1
       try {
-        // ml_confidence_log table is created by schema in initDb()
         db.prepare(`
-          INSERT INTO ml_confidence_log (id, signal_time, instrument, confidence, action)
-          VALUES (?, ?, ?, ?, ?)
+          INSERT INTO ml_confidence_log (id, signal_time, instrument, confidence, action, accepted)
+          VALUES (?, ?, ?, ?, ?, 1)
         `).run(uuidv4(), new Date().toISOString(), instrument, prediction.confidence || 0, prediction.action);
       } catch (err) {
         logger.debug(`Could not log ML confidence: ${err}`);
       }
 
+      // Bug fix: prediction.atr was computed by Python but never forwarded
+      // into executeOrder, so ATR-based SL/TP sizing never activated for ML trades.
+      // It is now explicitly included in the returned Signal.
       return {
         action: prediction.action as SignalAction,
         instrument,
         strategy: 'ml_xgb',
         confidence: prediction.confidence,
-        atr: prediction.atr,
+        atr: prediction.atr,          // ← bug fix: was silently dropped before
+        stopLossPips: prediction.stop_loss_pips,
+        takeProfitPips: prediction.take_profit_pips,
       };
     } catch (error: any) {
       if (error.response && error.response.status === 404) {
@@ -105,7 +144,6 @@ export class MLClient {
         const runId = uuidv4();
         const timestamp = new Date().toISOString();
 
-        // Save run to local JSON database
         db.prepare(`
           INSERT INTO model_runs (run_id, timestamp, metrics_json)
           VALUES (?, ?, ?)

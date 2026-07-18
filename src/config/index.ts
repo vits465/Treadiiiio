@@ -52,6 +52,24 @@ const envSchema = z.object({
   ATR_TP_MULTIPLIER: z.string().transform((val) => parseFloat(val)).default('3.0'),
   ALERT_LATENCY_MS: z.string().transform((val) => parseInt(val, 10)).default('500'),
   ALERT_SLIPPAGE_PIPS: z.string().transform((val) => parseFloat(val)).default('2.0'),
+
+  // Phase 4 — Realistic Edge Upgrade keys (all optional with safe defaults)
+
+  // Area 1: Dynamic Sizing
+  ML_CONFIDENCE_FULL_SIZE: z.string().transform((val) => parseFloat(val)).default('0.80'),
+  SIZING_VOL_TARGET_PERCENTILE: z.string().transform((val) => parseFloat(val)).default('0.5'),
+
+  // Area 2: ML Gate
+  ML_REQUIRE_RULE_CONFIRMATION: z.string().transform((val) => val.toLowerCase() === 'true').default('true'),
+  ML_MIN_RULE_CONFIRMATIONS: z.string().transform((val) => parseInt(val, 10)).default('1'),
+
+  // Area 3: Bounded Recovery
+  RECOVERY_MAX_CONSECUTIVE_LOSSES: z.string().transform((val) => parseInt(val, 10)).default('3'),
+  RECOVERY_COOLDOWN_HOURS: z.string().transform((val) => parseInt(val, 10)).default('24'),
+
+  // Area 4: Circuit Breakers
+  RISK_MAX_CONSECUTIVE_LOSSES: z.string().transform((val) => parseInt(val, 10)).default('5'),
+  RISK_CONSECUTIVE_LOSS_COOLDOWN_HOURS: z.string().transform((val) => parseInt(val, 10)).default('4'),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -61,8 +79,17 @@ if (!parsed.success) {
   process.exit(1);
 }
 
+// Area 6: Small Account Handling — force conservative mode for <$200 accounts
+// A warning is insufficient; running aggressive on a $150 account blows it up.
 if (parsed.data.STARTING_BALANCE < 200 && parsed.data.RISK_MODE !== 'conservative') {
-  console.warn(`⚠️ WARNING: STARTING_BALANCE is $${parsed.data.STARTING_BALANCE} (< $200). It is highly recommended to use RISK_MODE='conservative' instead of '${parsed.data.RISK_MODE}'.`);
+  console.error(
+    `❌ SAFETY OVERRIDE: STARTING_BALANCE is $${parsed.data.STARTING_BALANCE} (< $200). ` +
+    `Running with RISK_MODE='${parsed.data.RISK_MODE}' on a micro-account risks rapid ruin. ` +
+    `RISK_MODE has been FORCED to 'conservative'. ` +
+    `Set STARTING_BALANCE >= $200 or explicitly set RISK_MODE=conservative to suppress this message.`
+  );
+  // Mutate the parsed data to enforce the safety override
+  parsed.data.RISK_MODE = 'conservative';
 }
 
 export const config = {

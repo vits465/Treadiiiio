@@ -10,12 +10,15 @@ import { v4 as uuidv4 } from 'uuid';
 import { EventEmitter } from 'events';
 import { MT5Client } from '../broker/mt5Client';
 import { TelegramNotifier } from '../notifier/telegram';
+import { RejectionLogger } from '../risk/rejectionLogger';
 
 export const engineEvents = new EventEmitter();
 
 export class TradingEngine {
   private static balance: number = config.STARTING_BALANCE;
   private static paused: boolean = false;
+  /** Peak equity observed since engine start — for the circuit breaker. */
+  private static peakEquity: number = config.STARTING_BALANCE;
 
   public static isPaused(): boolean {
     return this.paused;
@@ -28,6 +31,7 @@ export class TradingEngine {
 
   /**
    * Initializes trading engine balance by checking database trade logs.
+   * Also restores peak equity from historical snapshots.
    */
   public static initialize() {
     const row = db.prepare(`
@@ -38,7 +42,17 @@ export class TradingEngine {
 
     const realizedPnL = row?.totalPnL || 0;
     this.balance = config.STARTING_BALANCE + realizedPnL;
-    logger.info(`Trading Engine Initialized. Realized PnL: $${realizedPnL.toFixed(2)}. Current Account Balance: $${this.balance.toFixed(2)}`);
+
+    // Restore peak equity from DB snapshots
+    const peakRow = db.prepare(`
+      SELECT MAX(equity) as peak FROM equity_snapshots
+    `).get() as { peak: number | null };
+    this.peakEquity = Math.max(config.STARTING_BALANCE, peakRow?.peak || config.STARTING_BALANCE, this.balance);
+
+    logger.info(
+      `Trading Engine Initialized. Realized PnL: $${realizedPnL.toFixed(2)}. ` +
+      `Current Balance: $${this.balance.toFixed(2)}. Peak Equity: $${this.peakEquity.toFixed(2)}.`
+    );
 
     // Ensure we have an initial equity snapshot if database is empty
     const snapshotsCount = db.prepare(`SELECT COUNT(*) as count FROM equity_snapshots`).get() as { count: number };
@@ -49,6 +63,17 @@ export class TradingEngine {
 
   public static getBalance(): number {
     return this.balance;
+  }
+
+  public static getPeakEquity(): number {
+    return this.peakEquity;
+  }
+
+  /**
+   * Returns the dollar level at which the peak-equity drawdown circuit breaker trips.
+   */
+  public static getCircuitBreakerLevel(): number {
+    return this.peakEquity * (1 - config.RISK_MAX_DRAWDOWN_PCT / 100);
   }
 
   /**
@@ -98,7 +123,13 @@ export class TradingEngine {
   }
 
   /**
-   * Executes a market order via MT5 and saves it locally.
+   * Executes a market order via MT5 (or simulator) and saves it locally.
+   *
+   * Area 1: Uses calculateSizedOrder for dynamic sizing and persists risk_pct.
+   * Area 4: Checks consecutive-loss cooldown before executing.
+   *
+   * Works for both real MT5 mode (USE_SIMULATOR=false) and paper trading
+   * (USE_SIMULATOR=true) — MT5Client handles the branching internally.
    */
   public static async executeOrder(
     instrument: string,
@@ -108,7 +139,9 @@ export class TradingEngine {
     stopLossPips?: number,
     takeProfitPips?: number,
     amountToRecover?: number,
-    atr?: number
+    atr?: number,
+    mlConfidence?: number,
+    atrPercentile?: number
   ): Promise<string | null> {
     if (this.paused) {
       logger.debug('Engine is paused, rejecting order.');
@@ -119,18 +152,21 @@ export class TradingEngine {
       return null;
     }
 
+    // Area 4: Consecutive-loss cooldown
+    if (!RiskManager.checkConsecutiveLossCooldown(instrument, strategy)) {
+      return null;
+    }
+
     const timeCheck = TimeFilter.canTrade();
     if (!timeCheck.allowed) {
       logger.warn(`[TIME FILTER] Rejected automated ${action} signal for ${instrument}. Reason: ${timeCheck.reason}`);
-      const { RejectionLogger } = require('../risk/rejectionLogger');
-      RejectionLogger.log('TradingEngine.timeFilter', timeCheck.reason || 'TIME_FILTER', instrument, action, strategy, 'Outside allowed trading window');
+      RejectionLogger.log('TradingEngine.timeFilter', timeCheck.reason as any || 'TIME_FILTER', instrument, action, strategy, 'Outside allowed trading window');
       return null;
     }
 
     const newsCheck = await NewsFilter.canTrade(instrument);
     if (!newsCheck.allowed) {
       logger.warn(`[NEWS FILTER] Rejected automated ${action} signal for ${instrument}. Reason: ${newsCheck.reason}`);
-      const { RejectionLogger } = require('../risk/rejectionLogger');
       RejectionLogger.log('TradingEngine.newsFilter', 'NEWS_WINDOW', instrument, action, strategy, newsCheck.reason);
       return null;
     }
@@ -174,34 +210,31 @@ export class TradingEngine {
       logger.info(`[ATR SIZING] Used ATR (${atr.toFixed(5)}) for ${instrument} to calculate SL: ${slPips.toFixed(1)} pips, TP: ${tpPips.toFixed(1)} pips`);
     }
     
-    let units = 0;
-    if (amountToRecover && amountToRecover > 0) {
-      units = RiskManager.calculatePositionSize(instrument, slPips, this.balance);
-      logger.info(`[Recovery Sizing] Executing recovery order for ${instrument} to recover $${amountToRecover.toFixed(2)}. Using standard calculated units: ${units}`);
-    } else {
-      units = RiskManager.calculatePositionSize(instrument, slPips, this.balance);
-    }
+    // Area 1: Dynamic sizing with confidence + volatility scalars
+    const sized = RiskManager.calculateSizedOrder(
+      instrument,
+      slPips,
+      this.balance,
+      mlConfidence,   // undefined for rule-based strategies → no confidence scaling
+      atrPercentile   // undefined if not computed → no volatility scaling
+    );
 
-    if (units <= 0) {
+    if (sized.units <= 0) {
       logger.warn(`Calculated unit size is 0 for ${instrument}. Cancelling execution.`);
-      const { RejectionLogger } = require('../risk/rejectionLogger');
       RejectionLogger.log('TradingEngine.executeOrder', 'ZERO_UNITS', instrument, action, strategy, 'Position size calculated as 0');
       return null;
     }
 
-    // Pip size handled earlier
-    const newPositionRiskPct = ((units * slPips * pipSize) / this.balance) * 100;
-
-    if (!RiskManager.checkTotalOpenRisk(this.balance, openPositions, newPositionRiskPct, instrument)) {
+    // Final total-open-risk check using the actual risk that will be used
+    if (!RiskManager.checkTotalOpenRisk(this.balance, openPositions, sized.riskPctUsed, instrument)) {
       return null;
     }
 
-    // Determine lot size from units (e.g., 100,000 units = 1.0 lot)
-    // MT5 usually takes volume in lots. E.g., 0.01 for micro lot.
-    let volume = units / 100000;
+    // Determine lot size from units; MT5 takes volume in lots
+    let volume = sized.units / 100000;
     if (volume < 0.01) volume = 0.01; // Enforce minimum 0.01 lot
 
-    // Call MT5 API
+    // Call MT5 API (handles both live and simulator modes)
     const requestedPrice = action === 'BUY' ? quote.ask : quote.bid;
     const mt5Result = await MT5Client.placeOrder(instrument, action, volume, slPips, tpPips, requestedPrice);
     
@@ -232,19 +265,18 @@ export class TradingEngine {
       tpPrice = parseFloat(tpPrice.toFixed(isJpy ? 3 : 5));
     }
 
-    // broker_order_id columns are now created by schema in initDb()
-
     db.prepare(`
       INSERT INTO positions (id, instrument, action, entry_time, entry_price, units, unrealized_pnl, stop_loss, take_profit, strategy, broker_order_id)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(orderId, instrument, action, entryTime, entryPrice, units, 0, slPrice, tpPrice, strategy, brokerOrderId);
+    `).run(orderId, instrument, action, entryTime, entryPrice, sized.units, 0, slPrice, tpPrice, strategy, brokerOrderId);
 
+    // Persist actual risk_pct taken for downstream accounting (recovery budget, audits)
     db.prepare(`
-      INSERT INTO trades (id, instrument, action, entry_time, entry_price, units, strategy, status, broker_order_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 'OPEN', ?)
-    `).run(orderId, instrument, action, entryTime, entryPrice, units, strategy, brokerOrderId);
+      INSERT INTO trades (id, instrument, action, entry_time, entry_price, units, strategy, status, broker_order_id, risk_pct)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'OPEN', ?, ?)
+    `).run(orderId, instrument, action, entryTime, entryPrice, sized.units, strategy, brokerOrderId, sized.riskPctUsed);
 
-    logger.info(`[ORDER EXECUTED] MT5 Ticket: ${brokerOrderId} | ${action} ${volume} lots ${instrument} @ ${entryPrice.toFixed(isJpy ? 3 : 5)} | SL: ${slPrice} | TP: ${tpPrice}`);
+    logger.info(`[ORDER EXECUTED] MT5 Ticket: ${brokerOrderId} | ${action} ${volume.toFixed(2)} lots ${instrument} @ ${entryPrice.toFixed(isJpy ? 3 : 5)} | SL: ${slPrice} | TP: ${tpPrice} | Risk: ${sized.riskPctUsed.toFixed(3)}%`);
 
     const newPos = this.getActivePosition(instrument, strategy);
     if (newPos) {
@@ -256,6 +288,7 @@ export class TradingEngine {
 
   /**
    * Closes an active position via MT5 and calculates realized PnL.
+   * Works for both live and simulator modes.
    */
   public static async closePosition(positionId: string, quote: Quote, reason: string): Promise<number> {
     const pos = db.prepare(`
@@ -312,16 +345,17 @@ export class TradingEngine {
   /**
    * Syncs active positions from MT5 and triggers closures if hit SL/TP externally.
    * Also implements local Trailing Stop logic if position crosses threshold.
+   *
+   * Area 4: The peak-equity drawdown breaker is now also evaluated here,
+   * but the every-tick call in the main loop ensures it trips even with
+   * zero open positions (purely realized drawdown case).
    */
   public static async updatePositionsAndCheckSLTP(quotes: Quote[]) {
     const localPositions = this.getOpenPositions();
-    if (localPositions.length === 0) return;
 
     // Fetch MT5 live positions
     const mt5Positions = await MT5Client.getPositions();
     const mt5Ids = new Set(mt5Positions.map(p => p.order_id));
-
-    // max_favorable_price and trailing_stop_pips columns are now created by schema in initDb()
 
     for (const pos of localPositions) {
       const quote = quotes.find((q) => q.instrument === pos.instrument);
@@ -393,7 +427,7 @@ export class TradingEngine {
         if (trailingStopHit) {
           logger.info(`Trailing stop of ${trailingPips} pips hit for ${pos.id}. Closing...`);
           await this.closePosition(pos.id, quote, 'Trailing Stop Triggered');
-          continue; // skip event emit below
+          continue;
         }
 
         const updatedPos = this.getActivePosition(pos.instrument, pos.strategy);
@@ -403,16 +437,50 @@ export class TradingEngine {
       }
     }
 
-    // Circuit Breaker Check
+    // Area 4: Circuit breaker evaluation (also runs every tick in the main loop)
     const totalUnrealized = this.getOpenPositions().reduce((acc, p) => acc + p.unrealizedPnL, 0);
     const currentEquity = this.balance + totalUnrealized;
-    const circuitBreakerLevel = config.STARTING_BALANCE * (1 - config.RISK_MAX_DRAWDOWN_PCT / 100);
-    
+    this.checkCircuitBreakers(currentEquity);
+  }
+
+  /**
+   * Area 4: Peak-equity drawdown circuit breaker.
+   *
+   * The kill-switch level is max(STARTING_BALANCE, peakEquity) × (1 − RISK_MAX_DRAWDOWN_PCT/100).
+   * An account that grew to $12,000 halts at $8,400 (30% drawdown from peak),
+   * not at the old static $7,000 from starting balance.
+   *
+   * Once tripped the engine pauses and requires manual re-arm (dashboard Start
+   * or Telegram /resume) — it never auto-resumes.
+   *
+   * This method is called both from updatePositionsAndCheckSLTP AND from the
+   * main loop every tick so purely realized drawdowns (zero open positions)
+   * can still trip the breaker.
+   */
+  public static checkCircuitBreakers(currentEquity: number): void {
+    // Update peak equity
+    if (currentEquity > this.peakEquity) {
+      this.peakEquity = currentEquity;
+    }
+
+    const circuitBreakerLevel = this.getCircuitBreakerLevel();
+
     if (currentEquity < circuitBreakerLevel && !this.isPaused()) {
-      logger.error(`🚨 EQUITY CIRCUIT BREAKER TRIGGERED 🚨 Equity ($${currentEquity.toFixed(2)}) dropped below ${config.RISK_MAX_DRAWDOWN_PCT}% drawdown limit ($${circuitBreakerLevel.toFixed(2)}). Halting trading.`);
-      this.setPaused(true);
-      TelegramNotifier.sendMessage(`🚨 *CIRCUIT BREAKER TRIGGERED*\nEquity: $${currentEquity.toFixed(2)}\nLimit: $${circuitBreakerLevel.toFixed(2)} (${config.RISK_MAX_DRAWDOWN_PCT}% drawdown)\nTrading HALTED. Use /resume to restart.`);
-      this.saveEquitySnapshot(totalUnrealized);
+      logger.error(
+        `🚨 EQUITY CIRCUIT BREAKER TRIGGERED 🚨 ` +
+        `Equity ($${currentEquity.toFixed(2)}) dropped below ${config.RISK_MAX_DRAWDOWN_PCT}% ` +
+        `drawdown from peak ($${this.peakEquity.toFixed(2)}) = limit $${circuitBreakerLevel.toFixed(2)}. ` +
+        `Halting trading — manual re-arm required.`
+      );
+      this.paused = true;
+      TelegramNotifier.sendMessage(
+        `🚨 *CIRCUIT BREAKER TRIGGERED*\n` +
+        `Equity: $${currentEquity.toFixed(2)}\n` +
+        `Peak was: $${this.peakEquity.toFixed(2)}\n` +
+        `Drawdown limit: ${config.RISK_MAX_DRAWDOWN_PCT}% → floor $${circuitBreakerLevel.toFixed(2)}\n` +
+        `Trading HALTED. Use dashboard Start or /resume to restart.`
+      );
+      this.saveEquitySnapshot(currentEquity - this.balance);
     }
   }
 
@@ -422,6 +490,11 @@ export class TradingEngine {
   public static saveEquitySnapshot(unrealizedPnL: number) {
     const time = new Date().toISOString();
     const equity = this.balance + unrealizedPnL;
+
+    // Update in-memory peak
+    if (equity > this.peakEquity) {
+      this.peakEquity = equity;
+    }
 
     const row = db.prepare(`
       SELECT MAX(equity) as peak

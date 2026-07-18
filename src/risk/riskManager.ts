@@ -7,10 +7,19 @@ import { TelegramNotifier } from '../notifier/telegram';
 
 type RiskMode = 'conservative' | 'standard' | 'aggressive';
 
+/** Return value of calculateSizedOrder — callers should persist riskPctUsed. */
+export interface SizedOrder {
+  units: number;          // Exact units after broker-step flooring
+  riskPctUsed: number;    // Effective risk % actually used (for DB persistence)
+  amountToRisk: number;   // Dollar amount risked
+}
+
 export class RiskManager {
   // Deduplication: only alert once per calendar day for daily/weekly limit
   private static dailyLimitAlertedDate: string = '';
   private static weeklyLimitAlertedDate: string = '';
+  // Deduplication: only alert Telegram once per consecutive-loss streak
+  private static consecutiveLossAlertedCount: number = 0;
 
   /**
    * Checks if we can open a new position based on concurrent position limits.
@@ -194,52 +203,125 @@ export class RiskManager {
   }
 
   /**
-   * Calculates optimal units to trade based on risk percentage of balance and stop loss distance.
-   * Formula: Units = (Balance * Risk%) / (Stop Loss in Pips * Pip Value)
+   * calculateSizedOrder — Dynamic Kelly-style position sizing.
+   *
+   * Two independent down-scaling factors multiply the base risk:
+   *
+   *   confidence scalar  = min(1, confidence / ML_CONFIDENCE_FULL_SIZE)
+   *   volatility scalar  = min(1, SIZING_VOL_TARGET_PERCENTILE / atrPercentile)
+   *     ↳ NOTE: The spec's literal formula `min(1, 1/atr_percentile)` is a
+   *       mathematical no-op for any percentile ≤ 1.  The target-percentile
+   *       ratio above implements the documented intent.
+   *
+   * The product of scalars is floored at 25% of base risk so a valid signal
+   * is never scaled to dust.  The final risk % is hard-capped at
+   * RISK_MAX_POSITION_SIZE_PCT (default 2%) regardless of base settings.
+   *
+   * Volume is floored to 0.01-lot increments so recorded PnL matches the
+   * broker's actual fill, and units are recomputed from the floored volume.
+   *
+   * Returns { units, riskPctUsed, amountToRisk }; callers should persist
+   * riskPctUsed into trades.risk_pct for accurate downstream accounting.
+   */
+  public static calculateSizedOrder(
+    instrument: string,
+    stopLossPips: number,
+    currentBalance: number,
+    confidence?: number,      // ML confidence (0–1); undefined = rule-based (no scaling)
+    atrPercentile?: number    // From computeAtrPercentile; undefined = no vol scaling
+  ): SizedOrder {
+    const isJpy = instrument.includes('JPY');
+    const pipSize = isJpy ? 0.01 : 0.0001;
+
+    // Base risk — capped at RISK_MAX_POSITION_SIZE_PCT so even a misconfigured
+    // RISK_BASE_PCT_PER_TRADE=5 cannot push risk past the safety ceiling.
+    const baseRiskPct = Math.min(
+      this.getEffectiveRiskPct(currentBalance, config.RISK_MODE),
+      config.RISK_MAX_POSITION_SIZE_PCT
+    );
+
+    // --- Confidence scalar (only for ML signals) ---
+    let confScalar = 1.0;
+    if (confidence !== undefined && config.ML_CONFIDENCE_FULL_SIZE > 0) {
+      confScalar = Math.min(1.0, confidence / config.ML_CONFIDENCE_FULL_SIZE);
+    }
+
+    // --- Volatility scalar ---
+    // Target percentile / current percentile — shrinks size when ATR is
+    // elevated relative to its own recent history.  Calm regimes (low
+    // percentile) are capped at 1 so we never *increase* size.
+    let volScalar = 1.0;
+    if (atrPercentile !== undefined && atrPercentile > 0 && config.SIZING_VOL_TARGET_PERCENTILE > 0) {
+      volScalar = Math.min(1.0, config.SIZING_VOL_TARGET_PERCENTILE / atrPercentile);
+    }
+
+    // Combined scalar — floored at 25% of base risk so a valid trade is never
+    // reduced to dust.
+    const combinedScalar = Math.max(0.25, confScalar * volScalar);
+    const effectiveRiskPct = Math.min(baseRiskPct * combinedScalar, config.RISK_MAX_POSITION_SIZE_PCT);
+
+    const amountToRisk = currentBalance * (effectiveRiskPct / 100);
+
+    // Use tight 15-pip default SL if not specified
+    const slPips = stopLossPips || 15;
+    const slDistance = slPips * pipSize;
+
+    // Raw units from risk formula
+    let rawUnits = amountToRisk / slDistance;
+
+    // Broker-step flooring: floor volume to 0.01-lot increments,
+    // recompute exact units from floored volume.
+    let volume = rawUnits / 100000;
+    if (volume < 0.01) volume = 0; // will be caught by min-lot check below
+    else volume = Math.floor(volume * 100) / 100; // floor to 0.01 increments
+    const units = volume * 100000;
+
+    // Min-lot check (0.01 lot = 1,000 units)
+    const minLotUnits = 1000;
+    const minLotRisk = minLotUnits * slDistance;
+
+    if (units < minLotUnits || minLotRisk > amountToRisk) {
+      logger.warn(
+        `[RISK] Min-lot risk budget exceeded for ${instrument}. ` +
+        `Budget: $${amountToRisk.toFixed(2)}, Min 0.01-lot needs: $${minLotRisk.toFixed(2)}. Rejected.`
+      );
+      RejectionLogger.log(
+        'RiskManager.calculateSizedOrder',
+        'MIN_LOT_RISK_EXCEEDED',
+        instrument,
+        undefined,
+        undefined,
+        `Budget: $${amountToRisk.toFixed(2)}, Min lot risk: $${minLotRisk.toFixed(2)}`
+      );
+      return { units: 0, riskPctUsed: 0, amountToRisk: 0 };
+    }
+
+    // Limit leverage to 30:1 (standard retail limit)
+    const maxLeverage = 30;
+    const maxUnits = currentBalance * maxLeverage;
+    const finalUnits = Math.min(units, maxUnits);
+
+    const riskPctUsed = ((finalUnits * slDistance) / currentBalance) * 100;
+
+    logger.debug(
+      `[SIZING] ${instrument} confScalar=${confScalar.toFixed(3)} volScalar=${volScalar.toFixed(3)} ` +
+      `combinedScalar=${combinedScalar.toFixed(3)} effectiveRisk=${effectiveRiskPct.toFixed(3)}% ` +
+      `units=${finalUnits} riskPctUsed=${riskPctUsed.toFixed(4)}%`
+    );
+
+    return { units: finalUnits, riskPctUsed, amountToRisk };
+  }
+
+  /**
+   * Backward-compatible wrapper for existing callers.
+   * Internally delegates to calculateSizedOrder; does NOT apply dynamic scaling.
    */
   public static calculatePositionSize(
     instrument: string,
     stopLossPips: number,
     currentBalance: number
   ): number {
-    const isJpy = instrument.includes('JPY');
-    const pipSize = isJpy ? 0.01 : 0.0001;
-    const riskPct = this.getEffectiveRiskPct(currentBalance, config.RISK_MODE) / 100;
-    
-    const amountToRisk = currentBalance * riskPct;
-    
-    // Use tight 15-pip default SL for low losses
-    const slPips = stopLossPips || 15;
-    const slDistance = slPips * pipSize;
-
-    let units = amountToRisk / slDistance;
-    units = Math.round(units);
-
-    // Min lot check (0.01 lot = 1,000 units)
-    const minLotUnits = 1000;
-    const minLotRisk = minLotUnits * slDistance;
-
-    if (minLotRisk > amountToRisk) {
-      logger.warn(`Risk budget too small for minimum lot size (0.01 lot) at this SL distance - widen SL or skip. Budget: $${amountToRisk.toFixed(2)}, Min Risk: $${minLotRisk.toFixed(2)}. Rejected.`);
-      RejectionLogger.log(
-        'RiskManager.calculatePositionSize',
-        'MIN_LOT_SIZE',
-        instrument,
-        undefined,
-        undefined,
-        `Budget: $${amountToRisk.toFixed(2)}, Min Risk: $${minLotRisk.toFixed(2)}`
-      );
-      return 0;
-    }
-
-    // Limit leverage to 30:1 (standard retail limit)
-    const maxLeverage = 30;
-    const maxUnits = currentBalance * maxLeverage;
-    if (units > maxUnits) {
-      units = maxUnits;
-    }
-
-    return units;
+    return this.calculateSizedOrder(instrument, stopLossPips, currentBalance).units;
   }
 
   public static checkTotalOpenRisk(currentBalance: number, openPositions: PositionInfo[], newPositionRiskPct: number = 0, instrument: string = 'UNKNOWN'): boolean {
@@ -270,6 +352,96 @@ export class RiskManager {
 
     return true;
   }
+
+  // -------------------------------------------------------------------------
+  // Area 4 — Consecutive-Loss Cooldown
+  // -------------------------------------------------------------------------
+
+  /**
+   * Returns the cooldown status without logging a rejection.
+   * Safe to call for dashboard read-outs.
+   */
+  public static getConsecutiveLossStatus(): {
+    inCooldown: boolean;
+    consecutiveLosses: number;
+    cooldownUntil: Date | null;
+  } {
+    const maxLosses = config.RISK_MAX_CONSECUTIVE_LOSSES;
+    const cooldownHours = config.RISK_CONSECUTIVE_LOSS_COOLDOWN_HOURS;
+
+    const recentTrades = db.prepare(`
+      SELECT pnl, exit_time
+      FROM trades
+      WHERE status = 'CLOSED'
+      ORDER BY exit_time DESC
+      LIMIT ?
+    `).all(maxLosses) as { pnl: number; exit_time: string }[];
+
+    if (recentTrades.length < maxLosses) {
+      return { inCooldown: false, consecutiveLosses: recentTrades.length, cooldownUntil: null };
+    }
+
+    const allLosses = recentTrades.every((t) => t.pnl < 0);
+    if (!allLosses) {
+      return { inCooldown: false, consecutiveLosses: 0, cooldownUntil: null };
+    }
+
+    // All maxLosses most recent trades are losses — check if still in cooldown
+    const lastLossTime = new Date(recentTrades[0].exit_time);
+    const cooldownUntil = new Date(lastLossTime.getTime() + cooldownHours * 60 * 60 * 1000);
+    const now = new Date();
+
+    return {
+      inCooldown: now < cooldownUntil,
+      consecutiveLosses: maxLosses,
+      cooldownUntil: now < cooldownUntil ? cooldownUntil : null,
+    };
+  }
+
+  /**
+   * Checks if the consecutive-loss cooldown is active. If so, logs a rejection
+   * and alerts Telegram once per streak (deduped by consecutive-loss count).
+   */
+  public static checkConsecutiveLossCooldown(instrument: string, strategy?: string): boolean {
+    const status = this.getConsecutiveLossStatus();
+
+    if (!status.inCooldown) {
+      this.consecutiveLossAlertedCount = 0; // reset dedup tracker on recovery
+      return true;
+    }
+
+    logger.warn(
+      `[CIRCUIT BREAKER] Consecutive-loss cooldown active. ` +
+      `${status.consecutiveLosses} losses in a row. ` +
+      `New entries blocked until ${status.cooldownUntil?.toISOString()}.`
+    );
+
+    RejectionLogger.log(
+      'RiskManager.checkConsecutiveLossCooldown',
+      'CONSECUTIVE_LOSS_COOLDOWN',
+      instrument,
+      undefined,
+      strategy,
+      `${status.consecutiveLosses} consecutive losses, cooldown until ${status.cooldownUntil?.toISOString()}`
+    );
+
+    // Alert Telegram once per streak length
+    if (this.consecutiveLossAlertedCount !== status.consecutiveLosses) {
+      this.consecutiveLossAlertedCount = status.consecutiveLosses;
+      TelegramNotifier.sendMessage(
+        `⚠️ *CONSECUTIVE LOSS COOLDOWN*\n` +
+        `${status.consecutiveLosses} losses in a row.\n` +
+        `New entries paused until ${status.cooldownUntil?.toUTCString()}.\n` +
+        `A single winning trade will clear this.`
+      );
+    }
+
+    return false;
+  }
+
+  // -------------------------------------------------------------------------
+  // Correlation helpers
+  // -------------------------------------------------------------------------
 
   private static getUsdDirection(instrument: string, action: 'BUY' | 'SELL'): 'LONG_USD' | 'SHORT_USD' | 'NEUTRAL' {
     if (instrument.endsWith('USD')) {

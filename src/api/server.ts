@@ -357,7 +357,9 @@ app.get('/api/monte-carlo', (req, res) => {
   try {
     const target = parseFloat(req.query.target as string) || 300;
     const trades = parseInt(req.query.trades as string) || 200;
-    const result = runMonteCarlo(target, trades);
+    const rawMethod = (req.query.method as string || 'bootstrap').toLowerCase();
+    const method: 'bootstrap' | 'shuffle' = rawMethod === 'shuffle' ? 'shuffle' : 'bootstrap';
+    const result = runMonteCarlo(target, trades, 1000, method);
     res.json(result);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -454,10 +456,14 @@ app.get('/api/risk-status', (req, res) => {
     const currentTotalOpenRiskPct = (totalRiskDollars / balance) * 100;
     const effectiveRiskPct = RiskManager.getEffectiveRiskPct(balance, config.RISK_MODE);
 
-    // Distance to circuit breaker
+    // Area 4: Peak-equity circuit breaker level (grows with account)
     const currentEquity = balance + unrealized;
-    const circuitBreakerLevel = config.STARTING_BALANCE * (1 - config.RISK_MAX_DRAWDOWN_PCT / 100);
+    const peakEquity = TradingEngine.getPeakEquity();
+    const circuitBreakerLevel = TradingEngine.getCircuitBreakerLevel();
     const distanceToCircuitBreaker = Math.max(0, currentEquity - circuitBreakerLevel);
+
+    // Area 4: Consecutive-loss cooldown status (read-only, no rejection log)
+    const consecutiveLossStatus = RiskManager.getConsecutiveLossStatus();
 
     res.json({
       dailyLossLimit: dailyLimit,
@@ -469,8 +475,15 @@ app.get('/api/risk-status', (req, res) => {
       currentTotalOpenRiskPct,
       distanceToCircuitBreaker,
       circuitBreakerLevel,
+      peakEquity,
+      enginePaused: TradingEngine.isPaused(),
       maxConcurrentPositions: config.RISK_MAX_CONCURRENT_POSITIONS,
       currentOpenPositions: openCount,
+      consecutiveLossCooldown: {
+        inCooldown: consecutiveLossStatus.inCooldown,
+        consecutiveLosses: consecutiveLossStatus.consecutiveLosses,
+        cooldownUntil: consecutiveLossStatus.cooldownUntil?.toISOString() || null,
+      },
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -607,11 +620,30 @@ app.post('/api/trade/close', async (req, res) => {
 import * as fs from 'fs';
 import * as path from 'path';
 
+/** Mask a Telegram bot token: show ••••••••XXXX (last 4 chars). */
+function maskToken(token: string | undefined): string {
+  if (!token || token.length === 0) return '';
+  const visible = token.slice(-4);
+  return `••••••••${visible}`;
+}
+
+/** Returns true if the value is our mask pattern (user did not change it). */
+function isMasked(value: string): boolean {
+  return /^•+/.test(value);
+}
+
+/** Strip \r and \n to block .env line-injection attacks. */
+function sanitize(value: string): string {
+  return value.replace(/[\r\n]/g, '');
+}
+
 app.get('/api/config', (req, res) => {
+  // Area 7: Never echo the raw Telegram token to the browser.
+  // Show a masked hint so the dashboard can display it without exposing it.
   res.json({
     RISK_MAX_POSITION_SIZE_PCT: config.RISK_MAX_POSITION_SIZE_PCT,
     CURRENCY_PAIRS: config.CURRENCY_PAIRS.join(', '),
-    TELEGRAM_BOT_TOKEN: config.TELEGRAM_BOT_TOKEN || '',
+    TELEGRAM_BOT_TOKEN: maskToken(config.TELEGRAM_BOT_TOKEN),
     TELEGRAM_CHAT_ID: config.TELEGRAM_CHAT_ID || '',
   });
 });
@@ -620,22 +652,73 @@ app.post('/api/config', configRateLimiter, (req, res) => {
   try {
     const { RISK_MAX_POSITION_SIZE_PCT, CURRENCY_PAIRS, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID } = req.body;
     const envPath = path.resolve(process.cwd(), '.env');
-    
     let envData = fs.readFileSync(envPath, 'utf-8');
-    
+
+    // Area 7: Validate before writing
+    const validationErrors: string[] = [];
+
+    if (RISK_MAX_POSITION_SIZE_PCT !== undefined) {
+      const riskVal = parseFloat(sanitize(String(RISK_MAX_POSITION_SIZE_PCT)));
+      if (isNaN(riskVal) || riskVal <= 0) {
+        validationErrors.push('RISK_MAX_POSITION_SIZE_PCT must be a positive number.');
+      } else if (riskVal > 2) {
+        // Safety cap — the dashboard can tighten risk but never raise it past 2%
+        return res.status(400).json({
+          error: `RISK_MAX_POSITION_SIZE_PCT cannot exceed 2% (got ${riskVal}%). ` +
+                 `This cap is a hard safety limit and cannot be raised via the API.`
+        });
+      }
+    }
+
+    if (CURRENCY_PAIRS !== undefined) {
+      const pairs = sanitize(String(CURRENCY_PAIRS));
+      // Must be a comma-separated list of AAA/BBB or AAA_BBB pairs
+      if (!/^[A-Z]{3}[\/\_][A-Z]{3}(,[A-Z]{3}[\/\_][A-Z]{3})*$/.test(pairs.replace(/\s/g, ''))) {
+        validationErrors.push('CURRENCY_PAIRS must be a comma-separated list of pairs like EUR/USD,GBP/USD');
+      }
+    }
+
+    if (TELEGRAM_CHAT_ID !== undefined && TELEGRAM_CHAT_ID !== '') {
+      const chatId = sanitize(String(TELEGRAM_CHAT_ID));
+      if (!/^-?\d+$/.test(chatId)) {
+        validationErrors.push('TELEGRAM_CHAT_ID must be numeric.');
+      }
+    }
+
+    if (TELEGRAM_BOT_TOKEN !== undefined && !isMasked(String(TELEGRAM_BOT_TOKEN))) {
+      const tokenVal = sanitize(String(TELEGRAM_BOT_TOKEN));
+      if (tokenVal.length > 0 && !/^\d+:[A-Za-z0-9_-]+$/.test(tokenVal)) {
+        validationErrors.push('TELEGRAM_BOT_TOKEN must match the Telegram format: digits:token');
+      }
+    }
+
+    if (validationErrors.length > 0) {
+      return res.status(400).json({ error: validationErrors.join(' | ') });
+    }
+
     const updateEnv = (key: string, value: string) => {
+      const sanitized = sanitize(value);
       const regex = new RegExp(`^${key}=.*`, 'm');
       if (regex.test(envData)) {
-        envData = envData.replace(regex, `${key}=${value}`);
+        envData = envData.replace(regex, `${key}=${sanitized}`);
       } else {
-        envData += `\n${key}=${value}`;
+        envData += `\n${key}=${sanitized}`;
       }
     };
 
-    if (RISK_MAX_POSITION_SIZE_PCT) updateEnv('RISK_MAX_POSITION_SIZE_PCT', RISK_MAX_POSITION_SIZE_PCT);
-    if (CURRENCY_PAIRS) updateEnv('CURRENCY_PAIRS', CURRENCY_PAIRS);
-    if (TELEGRAM_BOT_TOKEN !== undefined) updateEnv('TELEGRAM_BOT_TOKEN', TELEGRAM_BOT_TOKEN);
-    if (TELEGRAM_CHAT_ID !== undefined) updateEnv('TELEGRAM_CHAT_ID', TELEGRAM_CHAT_ID);
+    if (RISK_MAX_POSITION_SIZE_PCT !== undefined) {
+      updateEnv('RISK_MAX_POSITION_SIZE_PCT', String(RISK_MAX_POSITION_SIZE_PCT));
+    }
+    if (CURRENCY_PAIRS !== undefined) {
+      updateEnv('CURRENCY_PAIRS', String(CURRENCY_PAIRS));
+    }
+    // Only update Telegram token if the user actually typed a new one (not the mask)
+    if (TELEGRAM_BOT_TOKEN !== undefined && !isMasked(String(TELEGRAM_BOT_TOKEN))) {
+      updateEnv('TELEGRAM_BOT_TOKEN', String(TELEGRAM_BOT_TOKEN));
+    }
+    if (TELEGRAM_CHAT_ID !== undefined) {
+      updateEnv('TELEGRAM_CHAT_ID', String(TELEGRAM_CHAT_ID));
+    }
 
     fs.writeFileSync(envPath, envData);
     

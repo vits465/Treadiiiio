@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Treadiiiio Forex Bot - User Manual</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f8fafc;
+            color: #1e293b;
+            line-height: 1.6;
+        }
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 40px 60px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+        h1, h2, h3 {
+            color: #0f172a;
+        }
+        h1 { font-size: 2.5rem; font-weight: 700; margin-bottom: 0.5rem; border-bottom: 2px solid #e2e8f0; padding-bottom: 1rem; }
+        h2 { font-size: 1.75rem; font-weight: 600; margin-top: 2.5rem; margin-bottom: 1rem; color: #2563eb; }
+        h3 { font-size: 1.25rem; font-weight: 600; margin-top: 1.5rem; margin-bottom: 0.75rem; }
+        p { margin-bottom: 1rem; }
+        ul { list-style-type: disc; margin-left: 1.5rem; margin-bottom: 1.5rem; }
+        li { margin-bottom: 0.5rem; }
+        .highlight { background-color: #f1f5f9; padding: 1rem; border-left: 4px solid #3b82f6; border-radius: 4px; margin-bottom: 1.5rem; }
+        .feature-box { background-color: #fff8f1; padding: 1.25rem; border: 1px solid #fed7aa; border-radius: 8px; margin-bottom: 1.5rem; }
+        .feature-title { font-weight: 600; color: #c2410c; margin-bottom: 0.5rem; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 1.5rem; }
+        th, td { border: 1px solid #e2e8f0; padding: 0.75rem; text-align: left; }
+        th { background-color: #f8fafc; font-weight: 600; }
+        
+        @media print {
+            body { background-color: white; }
+            .container { box-shadow: none; padding: 0; max-width: 100%; }
+            .no-print { display: none; }
+            .page-break { page-break-before: always; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="container my-10">
+    <div class="no-print bg-blue-50 text-blue-800 p-4 rounded-md mb-6 flex justify-between items-center">
+        <span>💡 <strong>Tip:</strong> To save this manual as a PDF, press <strong>Ctrl + P</strong> (Windows) or <strong>Cmd + P</strong> (Mac) and select "Save as PDF" as your printer.</span>
+        <button onclick="window.print()" class="bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700 transition">Print to PDF</button>
+    </div>
+
+    <h1>Treadiiiio Forex Bot<br><span class="text-xl font-normal text-slate-500">Comprehensive User Manual & Feature Guide</span></h1>
+    <p class="text-slate-500 mb-8">Version 2.0 (Realistic Edge Upgrade) | Date: July 2026</p>
+
+    <div class="highlight">
+        <strong>Overview:</strong> Treadiiiio is a highly advanced, risk-first Forex trading bot. It combines traditional technical indicators (SMA, RSI, Bollinger Bands) with Machine Learning (XGBoost) to generate signals. The system is protected by a multi-layered, institutional-grade risk management framework to preserve capital in all market conditions.
+    </div>
+
+    <h2>1. How to Start the Bot (The Monday Routine)</h2>
+    <p>Forex markets operate Monday through Friday. Since the bot has strict time filters, it will automatically pause trading on weekends. Here is how you start your system for the trading week:</p>
+    
+    <ol class="list-decimal ml-6 mb-6 space-y-2">
+        <li><strong>Open your terminal</strong> and navigate to the project folder (<code>D:\Frerlancing\Treding Bot</code>).</li>
+        <li><strong>Start the Core Trading Engine:</strong> Type <code>npm run dev</code>. You will see logs indicating the database is loaded and the engine is polling prices.</li>
+        <li><strong>Start the Dashboard:</strong> Open a second terminal, go to <code>D:\Frerlancing\Treding Bot\dashboard</code>, and type <code>npm run dev -- --port 3000</code>.</li>
+        <li><strong>Start the ML Service (Optional but Recommended):</strong> If you want the Machine Learning strategy to run, open a third terminal, navigate to your Python ML folder, and start the FastAPI server (e.g., <code>uvicorn main:app --reload</code>).</li>
+    </ol>
+
+    <h2>2. Dashboard Walkthrough & Usage</h2>
+    <p>The dashboard (accessible at <a href="http://localhost:3000" class="text-blue-600 underline">http://localhost:3000</a>) is your mission control. Here is a breakdown of its 7 main sections:</p>
+
+    <h3>📊 1. Overview</h3>
+    <ul>
+        <li><strong>Live Equity Curve:</strong> Watch your account balance change in real-time as trades close.</li>
+        <li><strong>Key Stats:</strong> View your Win Rate, Realized PnL, and Max Drawdown instantly.</li>
+        <li><strong>Manual Override:</strong> While the bot is fully automated, you can use the manual Buy/Sell buttons in an emergency to force a trade.</li>
+    </ul>
+
+    <h3>📖 2. Trades Log</h3>
+    <ul>
+        <li><strong>Audit Trail:</strong> Displays a complete history of every trade executed, including entry/exit prices, PnL, and the strategy responsible.</li>
+        <li><strong>Rejection Log:</strong> See exactly <em>why</em> a trade was blocked (e.g., "Outside Trading Hours", "Circuit Breaker Active", "Min Lot Risk Exceeded"). This proves the safety guards are working.</li>
+    </ul>
+
+    <h3>🧪 3. Strategy Lab</h3>
+    <ul>
+        <li>Toggle individual strategies on or off on the fly (RSI, Bollinger, ML, Loss Recovery).</li>
+        <li><strong>Why use this?</strong> If you notice the market is highly trending, you might want to disable mean-reversion strategies (RSI/Bollinger) and rely solely on ML and Trend-following.</li>
+    </ul>
+
+    <h3>🧠 4. Model Monitor</h3>
+    <ul>
+        <li>Tracks the health of your Python Machine Learning models.</li>
+        <li>Shows test accuracy and data drift. If accuracy drops below your comfort zone, the bot can auto-retrain itself.</li>
+    </ul>
+
+    <h3>🛡️ 5. Risk Panel</h3>
+    <ul>
+        <li><strong>Circuit Breaker Status:</strong> Shows exactly how many dollars away you are from triggering the emergency halt.</li>
+        <li><strong>Daily Budgets:</strong> Tracks how much of your daily allowed loss you have consumed.</li>
+    </ul>
+
+    <h3>⏱️ 6. Backtest</h3>
+    <ul>
+        <li>Run synthetic simulations to verify that your current risk parameters (spread, slippage, latency) behave as expected before risking real capital.</li>
+    </ul>
+
+    <h3>⚙️ 7. Settings</h3>
+    <ul>
+        <li><strong>Kill Switch:</strong> A giant "Pause Engine" button to instantly stop all new trade entries.</li>
+        <li><strong>Config Editor:</strong> Safely update API keys, currency pairs, and base risk percentages without opening the <code>.env</code> file.</li>
+    </ul>
+
+    <div class="page-break"></div>
+
+    <h2>3. The "Realistic Edge" Features (How it protects you)</h2>
+    <p>This bot was recently upgraded with institutional-grade risk controls. Here is how each feature works and why it matters:</p>
+
+    <div class="feature-box">
+        <div class="feature-title">Feature 1: Dynamic Position Sizing</div>
+        <p><strong>How it works:</strong> Instead of betting a flat 1% on every trade, the bot scales your size up or down based on two things: <em>Market Volatility (ATR)</em> and <em>ML Confidence</em>.</p>
+        <p><strong>Why you need it:</strong> In chaotic, highly volatile markets, stop-losses are easily hit due to wide price swings. The bot automatically detects this and shrinks your lot size to protect capital. Conversely, if the ML model is very confident and the market is calm, it allocates the full normal risk.</p>
+    </div>
+
+    <div class="feature-box">
+        <div class="feature-title">Feature 2: The ML "Gate" (Rule Confirmation)</div>
+        <p><strong>How it works:</strong> Even if the AI predicts a "BUY", the bot won't execute it blindly. It asks three traditional indicators (SMA Trend, RSI, Bollinger Bands) for their opinion. If none of them agree with the AI, the trade is rejected.</p>
+        <p><strong>Why you need it:</strong> AI models can sometimes hallucinate or overfit. Forcing the AI to get "approval" from basic math guarantees you never take a trade that contradicts fundamental market momentum.</p>
+    </div>
+
+    <div class="feature-box">
+        <div class="feature-title">Feature 3: Bounded Loss Recovery</div>
+        <p><strong>How it works:</strong> If you lose a trade, the bot enters "Recovery Mode" to win it back, but it is strictly bounded. It will never use Martingale (doubling down). It attempts to recover a maximum of 2 times. If it loses 3 recovery trades in a row globally, it bans itself for 24 hours.</p>
+        <p><strong>Why you need it:</strong> Revenge trading destroys accounts. This feature gives you a mathematical chance to bounce back without risking a catastrophic death spiral.</p>
+    </div>
+
+    <div class="feature-box">
+        <div class="feature-title">Feature 4: Dynamic Circuit Breakers & Cooldowns</div>
+        <p><strong>How it works:</strong> 
+        <br>1. <em>Peak-Equity Breaker:</em> If your account grows from $1,000 to $2,000, the 30% max drawdown is calculated from $2,000, not $1,000. It locks in your growth.
+        <br>2. <em>Consecutive Loss Cooldown:</em> If you lose 5 trades in a row across any strategies, the bot puts itself in "time-out" for 4 hours.</p>
+        <p><strong>Why you need it:</strong> Markets change regimes (e.g., from trending to choppy). If you lose 5 times in a row, your strategy is out of sync with the current market phase. The 4-hour timeout waits for the market to change behavior before risking more money.</p>
+    </div>
+
+    <div class="feature-box">
+        <div class="feature-title">Feature 5: Small Account Protections</div>
+        <p><strong>How it works:</strong> If your balance is under $200, the bot forcefully downgrades your risk to "Conservative" (0.5% per trade). It also strictly checks the "Minimum Lot Cost" (0.01 lots). If a trade's stop-loss requires more money than your 0.5% budget allows, it cancels the trade instead of rounding up.</p>
+        <p><strong>Why you need it:</strong> Small accounts are fragile. Brokers require a minimum of 0.01 lots. If your account is tiny, 0.01 lots might equal 5% risk on a wide stop-loss. The bot prevents this hidden over-leveraging.</p>
+    </div>
+
+    <h2>4. Summary of Limits</h2>
+    <table>
+        <tr>
+            <th>Setting</th>
+            <th>Value</th>
+            <th>Description</th>
+        </tr>
+        <tr>
+            <td>Hard Risk Cap</td>
+            <td>2%</td>
+            <td>No single trade can ever risk more than 2% of equity, regardless of settings.</td>
+        </tr>
+        <tr>
+            <td>Daily Loss Limit</td>
+            <td>5%</td>
+            <td>Bot halts for the day if total losses hit 5%.</td>
+        </tr>
+        <tr>
+            <td>Weekly Loss Limit</td>
+            <td>12%</td>
+            <td>Bot halts for the week if rolling 7-day losses hit 12%.</td>
+        </tr>
+        <tr>
+            <td>Max Concurrent Positions</td>
+            <td>5</td>
+            <td>Never more than 5 open trades at once.</td>
+        </tr>
+    </table>
+    
+    <p class="text-center text-slate-500 mt-10 text-sm">Generated by Antigravity IDE • 2026</p>
+</div>
+
+</body>
+</html>

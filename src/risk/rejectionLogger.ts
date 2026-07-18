@@ -13,12 +13,16 @@ export type RejectionReasonCode =
   | 'CORRELATION_EXPOSURE'
   | 'NEWS_WINDOW'
   | 'ML_CONFIDENCE_LOW'
+  | 'ML_NO_RULE_CONFIRM'
   | 'TOTAL_OPEN_RISK'
   | 'MIN_LOT_SIZE'
+  | 'MIN_LOT_RISK_EXCEEDED'
   | 'ZERO_UNITS'
   | 'DAILY_PROFIT_LOCK'
   | 'DIRECTION_RESTRICTION'
-  | 'TIME_FILTER';
+  | 'TIME_FILTER'
+  | 'CONSECUTIVE_LOSS_COOLDOWN'
+  | 'RECOVERY_DISABLED';
 
 /**
  * Logs a trade rejection into the filter_rejections table for audit purposes.
@@ -30,12 +34,13 @@ export class RejectionLogger {
     instrument: string,
     direction?: string,
     strategy?: string,
-    details?: string
+    details?: string,
+    mlConfidence?: number
   ): void {
     try {
       db.prepare(`
-        INSERT INTO filter_rejections (id, timestamp, filter_name, reason_code, instrument, direction, strategy, details)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO filter_rejections (id, timestamp, filter_name, reason_code, instrument, direction, strategy, details, ml_confidence)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         uuidv4(),
         new Date().toISOString(),
@@ -44,7 +49,8 @@ export class RejectionLogger {
         instrument,
         direction || null,
         strategy || null,
-        details || null
+        details || null,
+        mlConfidence ?? null
       );
     } catch (err) {
       logger.debug(`Failed to log rejection: ${err}`);
