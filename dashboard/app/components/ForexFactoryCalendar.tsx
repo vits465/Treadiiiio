@@ -2,7 +2,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Calendar, AlertTriangle, Clock, RefreshCw, ShieldAlert } from "lucide-react";
+import { Calendar, RefreshCw } from "lucide-react";
 import { NewsEvent, getNews } from "@/lib/api-client";
 
 export function ForexFactoryCalendar() {
@@ -10,14 +10,49 @@ export function ForexFactoryCalendar() {
   const [loading, setLoading] = useState<boolean>(true);
   const [filterImpact, setFilterImpact] = useState<string>("HIGH");
 
-  const loadCalendar = () => {
+  const parseDirectJson = (rawItems: any[]): NewsEvent[] => {
+    return rawItems.map((item) => {
+      const d = new Date(item.date);
+      const dateStr = d.toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" });
+      const timeStr = d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+      return {
+        title: item.title,
+        country: item.country,
+        date: dateStr,
+        time: timeStr,
+        impact: item.impact,
+        forecast: item.forecast || "",
+        previous: item.previous || "",
+        timestamp: d.getTime(),
+      };
+    });
+  };
+
+  const loadCalendar = async () => {
     setLoading(true);
-    getNews()
-      .then((data) => {
-        if (Array.isArray(data)) setEvents(data);
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
+    try {
+      const data = await getNews();
+      if (Array.isArray(data) && data.length > 0) {
+        setEvents(data);
+        return;
+      }
+      throw new Error("Empty backend news");
+    } catch {
+      // Direct CDN Fallback (works on Vercel even when backend tunnel is restarting)
+      try {
+        const res = await fetch("https://nfs.faireconomy.media/ff_calendar_thisweek.json");
+        if (res.ok) {
+          const directData = await res.json();
+          if (Array.isArray(directData)) {
+            setEvents(parseDirectJson(directData));
+          }
+        }
+      } catch (err) {
+        console.error("Failed to fetch ForexFactory calendar:", err);
+      }
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -28,6 +63,10 @@ export function ForexFactoryCalendar() {
 
   const filteredEvents = events.filter((e) => {
     if (filterImpact === "ALL") return true;
+    if (filterImpact === "MEDIUM") {
+      const imp = e.impact?.toUpperCase();
+      return imp === "HIGH" || imp === "MEDIUM";
+    }
     return e.impact?.toUpperCase() === filterImpact.toUpperCase();
   });
 
@@ -71,7 +110,7 @@ export function ForexFactoryCalendar() {
       </div>
 
       {/* Events List */}
-      <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
+      <div className="space-y-2 max-h-[320px] overflow-y-auto pr-1">
         {filteredEvents.length > 0 ? (
           filteredEvents.map((event, idx) => {
             const isHigh = event.impact?.toLowerCase() === "high";
@@ -105,7 +144,7 @@ export function ForexFactoryCalendar() {
                       {event.title}
                     </span>
                     <span className="text-[10px] text-slate-400">
-                      {event.date} at {event.time} EST
+                      {event.date} at {event.time}
                     </span>
                   </div>
                 </div>

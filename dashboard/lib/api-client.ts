@@ -73,7 +73,13 @@ export interface StrategyToggle {
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     ...init,
-    headers: { "Content-Type": "application/json", "x-api-key": API_KEY, ...init?.headers },
+    headers: { 
+      "Content-Type": "application/json", 
+      "x-api-key": API_KEY, 
+      "Bypass-Tunnel-Reminder": "true",
+      "bypass-tunnel-reminder": "true",
+      ...init?.headers 
+    },
   });
   if (!res.ok) {
     const body = await res.text().catch(() => "");
