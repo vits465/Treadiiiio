@@ -31,8 +31,7 @@ module.exports = {
     {
       // Permanent fixed-subdomain tunnel — URL never changes: https://vits-trading-bot-engine.loca.lt
       name: "tunnel",
-      script: "npx",
-      args: "localtunnel --port 4000 --subdomain vits-trading-bot-engine",
+      script: "./start-tunnel.js",
       cwd: "./",
       watch: false,
       autorestart: true,
