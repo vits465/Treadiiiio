@@ -41,10 +41,28 @@ const SPREADS: Record<string, number> = {
 
 const simPrices = { ...BASE_PRICES };
 
+// Alpha Vantage symbol conversion (e.g. 'EUR/USD' → { from: 'EUR', to: 'USD' }, 'XAU/USD' → { from: 'XAU', to: 'USD' })
+function toAVSymbol(instrument: string): { from: string; to: string } {
+  const parts = instrument.replace('_', '/').split('/');
+  return { from: parts[0], to: parts[1] };
+}
+
+// Alpha Vantage granularity mapping
+function toAVInterval(granularity: string): string {
+  const map: Record<string, string> = {
+    '1min': '1min', '5min': '5min', '15min': '15min', '30min': '30min',
+    '60min': '60min', '1h': '60min', '1day': 'daily', 'daily': 'daily',
+  };
+  return map[granularity] || '60min';
+}
+
 export class PriceFeed {
-  private static baseURL = 'https://api.twelvedata.com';
-  // 5-minute memory cache for candles to prevent rate limit limits (429)
+  private static avBaseURL = 'https://www.alphavantage.co/query';
+  private static tdBaseURL = 'https://api.twelvedata.com';
+  // 5-minute memory cache for candles to prevent rate limit limits
   private static candleCache: Record<string, { candles: Candle[], timestamp: number }> = {};
+  // Quote cache: reuse last quote for up to 30 seconds to respect AV 5 req/min limit
+  private static quoteCache: Record<string, { quote: Quote; timestamp: number }> = {};
 
   public static getLatestQuote(instrument: string): Quote {
     const formatted = instrument.includes('/') ? instrument : instrument.replace('_', '/');
@@ -84,152 +102,210 @@ export class PriceFeed {
       return cached.candles;
     }
 
+    // --- PRIMARY: Alpha Vantage (daily candles only — FX_INTRADAY is premium) ---
+    const avInterval = toAVInterval(granularity);
+    if (avInterval === 'daily') {
+      try {
+        const { from, to } = toAVSymbol(instrument);
+        logger.info(`Fetching ${count} daily candles for ${instrument} from Alpha Vantage (FX_DAILY)...`);
+
+        const response = await axios.get(this.avBaseURL, {
+          params: {
+            function: 'FX_DAILY',
+            from_symbol: from,
+            to_symbol: to,
+            outputsize: count > 100 ? 'full' : 'compact',
+            apikey: process.env.ALPHA_VANTAGE_API_KEY || '4CNBP4CEGSL5EQU9',
+          },
+          timeout: 15000,
+        });
+
+        const data = response.data;
+        if (data['Note'] || data['Information']) {
+          throw new Error(`Alpha Vantage rate limit: ${data['Note'] || data['Information']}`);
+        }
+
+        const series = data['Time Series FX (Daily)'];
+        if (!series) throw new Error(`Alpha Vantage: no 'Time Series FX (Daily)' in response`);
+
+        const candles: Candle[] = Object.entries(series)
+          .slice(0, count)
+          .map(([datetime, v]: [string, any]) => ({
+            time: new Date(datetime + 'T00:00:00Z').toISOString(),
+            instrument, granularity,
+            open: parseFloat(v['1. open']),
+            high: parseFloat(v['2. high']),
+            low: parseFloat(v['3. low']),
+            close: parseFloat(v['4. close']),
+            volume: 0,
+          }))
+          .reverse();
+
+        this.saveCandlesToDb(candles);
+        this.candleCache[cacheKey] = { candles, timestamp: now };
+        logger.info(`Alpha Vantage: fetched ${candles.length} daily candles for ${instrument}`);
+        return candles;
+
+      } catch (avError: any) {
+        logger.warn(`Alpha Vantage daily candle fetch failed for ${instrument}: ${avError.message}. Trying Twelve Data...`);
+      }
+    }
+    // Note: FX_INTRADAY (1h) is premium on AV free plan — skip directly to Twelve Data
+
+    // --- SECONDARY FALLBACK: Twelve Data ---
     try {
       logger.info(`Fetching ${count} ${granularity} candles for ${instrument} from Twelve Data...`);
-      
-      const response = await axios.get(`${this.baseURL}/time_series`, {
+      const response = await axios.get(`${this.tdBaseURL}/time_series`, {
         params: {
           symbol: instrument,
           interval: granularity,
           outputsize: count,
           apikey: config.TWELVE_DATA_API_KEY,
         },
+        timeout: 10000,
       });
 
-      if (response.data.status === 'error') {
-        throw new Error(response.data.message || 'Twelve Data API Error');
-      }
+      if (response.data.status === 'error') throw new Error(response.data.message);
 
       const values = response.data.values || [];
       const candles: Candle[] = values.map((v: any) => ({
         time: new Date(v.datetime + ' UTC').toISOString(),
-        instrument,
-        granularity,
-        open: parseFloat(v.open),
-        high: parseFloat(v.high),
-        low: parseFloat(v.low),
-        close: parseFloat(v.close),
+        instrument, granularity,
+        open: parseFloat(v.open), high: parseFloat(v.high),
+        low: parseFloat(v.low), close: parseFloat(v.close),
         volume: parseInt(v.volume, 10) || 0,
-      }));
-
-      // Twelve Data returns most recent first, so reverse to make it oldest first (chronological)
-      candles.reverse();
+      })).reverse();
 
       this.saveCandlesToDb(candles);
-      
-      // Update cache
       this.candleCache[cacheKey] = { candles, timestamp: now };
-      
       return candles;
-    } catch (error: any) {
-      logger.error(`Twelve Data candle fetch failed for ${instrument}: ${error.message}. Using cache or simulator...`);
-      
-      // If we have any cached data even older than 5 minutes, fallback to it
-      // IMPORTANT: Update the timestamp so we don't retry on every single tick!
-      if (cached) {
-        cached.timestamp = now; // reset the 5-minute cooldown
-        return cached.candles;
-      }
-      
-      const dbCached = this.getCachedCandles(instrument, count, granularity);
-      if (dbCached.length > 0) {
-        // Cache in memory for 5 minutes so we don't try to fetch from API again immediately!
-        this.candleCache[cacheKey] = { candles: dbCached, timestamp: now };
-        return dbCached;
-      }
-      
-      const simCandles = this.generateSimulatedCandles(instrument, count, granularity);
-      // Full 5-minute cooldown: cache simulated candles so we don't retry Twelve Data again until the window expires
-      this.candleCache[cacheKey] = { candles: simCandles, timestamp: now };
-      return simCandles;
+
+    } catch (tdError: any) {
+      logger.error(`Both AV and Twelve Data candle fetch failed for ${instrument}. Using cache or simulator.`);
     }
+
+    // --- TERTIARY: cached / simulated ---
+    if (cached) { cached.timestamp = now; return cached.candles; }
+    const dbCached = this.getCachedCandles(instrument, count, granularity);
+    if (dbCached.length > 0) {
+      this.candleCache[cacheKey] = { candles: dbCached, timestamp: now };
+      return dbCached;
+    }
+    const simCandles = this.generateSimulatedCandles(instrument, count, granularity);
+    this.candleCache[cacheKey] = { candles: simCandles, timestamp: now };
+    return simCandles;
   }
 
   /**
-   * Fetches latest bid/ask quotes for currency pairs via Twelve Data, batching requests.
+   * Fetches latest bid/ask quotes.
+   * Primary: Alpha Vantage CURRENCY_EXCHANGE_RATE (one call per instrument, cached 30s)
+   * Fallback: Twelve Data batched price, then simulator.
    */
   public static async fetchLatestQuotes(instruments: string[]): Promise<Quote[]> {
     if (config.USE_SIMULATOR || !config.USE_REAL_PRICES) {
       return instruments.map((inst) => {
         const basePrice = simPrices[inst] || (inst.includes('JPY') ? 155.50 : 1.0850);
-        const vol = basePrice * 0.0001; // 0.01% volatility per tick
+        const vol = basePrice * 0.0001;
         const change = (Math.random() - 0.5) * vol;
         const newMid = basePrice + change;
         simPrices[inst] = newMid;
-
         const spread = SPREADS[inst] || (inst.includes('JPY') ? 0.015 : 0.00015);
-        const bid = newMid - spread / 2;
-        const ask = newMid + spread / 2;
-
         const isSpecial = inst.includes('JPY') || inst.includes('XAU');
         return {
           instrument: inst,
           time: new Date().toISOString(),
-          bid: parseFloat(bid.toFixed(isSpecial ? 3 : 5)),
-          ask: parseFloat(ask.toFixed(isSpecial ? 3 : 5)),
+          bid: parseFloat((newMid - spread / 2).toFixed(isSpecial ? 3 : 5)),
+          ask: parseFloat((newMid + spread / 2).toFixed(isSpecial ? 3 : 5)),
         };
       });
     }
 
-    try {
-      logger.debug(`Fetching live batched quotes from Twelve Data for: ${instruments.join(',')}`);
-      const quotes: Quote[] = [];
-      
-      const response = await axios.get(`${this.baseURL}/price`, {
-        params: {
-          symbol: instruments.join(','),
-          apikey: config.TWELVE_DATA_API_KEY,
-        },
-      });
+    const now = Date.now();
+    const QUOTE_CACHE_MS = 30 * 1000; // 30-second quote cache — respects AV 5 req/min
+    const quotes: Quote[] = [];
 
-      const data = response.data;
-      if (!data) {
-        throw new Error("Empty Twelve Data response");
+    // --- PRIMARY: Alpha Vantage CURRENCY_EXCHANGE_RATE (per instrument, cached 30s) ---
+    const uncached = instruments.filter(inst => {
+      const c = this.quoteCache[inst];
+      if (c && now - c.timestamp < QUOTE_CACHE_MS) {
+        quotes.push(c.quote);
+        return false;
       }
+      return true;
+    });
 
-      for (const inst of instruments) {
-        // Twelve Data returns keyed object for multi-symbol request, or plain price object if single
-        const item = data[inst] ? data[inst] : (instruments.length === 1 ? data : null);
-        
-        if (item && item.price) {
-          const basePrice = parseFloat(item.price);
+    for (const inst of uncached) {
+      try {
+        const { from, to } = toAVSymbol(inst);
+        const response = await axios.get(this.avBaseURL, {
+          params: {
+            function: 'CURRENCY_EXCHANGE_RATE',
+            from_currency: from,
+            to_currency: to,
+            apikey: process.env.ALPHA_VANTAGE_API_KEY || '4CNBP4CEGSL5EQU9',
+          },
+          timeout: 8000,
+        });
+
+        const rate = response.data?.['Realtime Currency Exchange Rate'];
+        if (rate?.['5. Exchange Rate']) {
+          const mid = parseFloat(rate['5. Exchange Rate']);
           const spread = SPREADS[inst] || (inst.includes('JPY') ? 0.015 : 0.00015);
+          const isSpecial = inst.includes('JPY') || inst.includes('XAU');
+          const quote: Quote = {
+            instrument: inst,
+            time: new Date().toISOString(),
+            bid: parseFloat((mid - spread / 2).toFixed(isSpecial ? 3 : 5)),
+            ask: parseFloat((mid + spread / 2).toFixed(isSpecial ? 3 : 5)),
+          };
+          this.quoteCache[inst] = { quote, timestamp: now };
+          simPrices[inst] = mid; // keep sim prices in sync
+          quotes.push(quote);
+          logger.debug(`Alpha Vantage quote for ${inst}: ${mid}`);
+        } else if (response.data?.['Note'] || response.data?.['Information']) {
+          throw new Error(`AV rate limit`);
+        } else {
+          throw new Error(`AV: unexpected response for ${inst}`);
+        }
+      } catch (avErr: any) {
+        logger.warn(`Alpha Vantage quote failed for ${inst}: ${avErr.message}. Trying Twelve Data...`);
+
+        // --- SECONDARY: Twelve Data single quote ---
+        try {
+          const tdResp = await axios.get(`${this.tdBaseURL}/price`, {
+            params: { symbol: inst, apikey: config.TWELVE_DATA_API_KEY },
+            timeout: 6000,
+          });
+          if (tdResp.data?.price) {
+            const mid = parseFloat(tdResp.data.price);
+            const spread = SPREADS[inst] || (inst.includes('JPY') ? 0.015 : 0.00015);
+            const isSpecial = inst.includes('JPY') || inst.includes('XAU');
+            const quote: Quote = {
+              instrument: inst,
+              time: new Date().toISOString(),
+              bid: parseFloat((mid - spread / 2).toFixed(isSpecial ? 3 : 5)),
+              ask: parseFloat((mid + spread / 2).toFixed(isSpecial ? 3 : 5)),
+            };
+            this.quoteCache[inst] = { quote, timestamp: now };
+            simPrices[inst] = mid;
+            quotes.push(quote);
+          } else throw new Error('TD: no price field');
+        } catch (tdErr: any) {
+          logger.error(`Quote fetch failed for ${inst} (AV + TD both failed). Using simulator.`);
+          const basePrice = simPrices[inst] || 1.0850;
+          const spread = SPREADS[inst] || 0.00015;
           const isSpecial = inst.includes('JPY') || inst.includes('XAU');
           quotes.push({
             instrument: inst,
             time: new Date().toISOString(),
             bid: parseFloat((basePrice - spread / 2).toFixed(isSpecial ? 3 : 5)),
-            ask: parseFloat((basePrice + spread / 2).toFixed(isSpecial ? 3 : 5))
+            ask: parseFloat((basePrice + spread / 2).toFixed(isSpecial ? 3 : 5)),
           });
-        } else {
-          logger.error(`Twelve Data price parsing failed for ${inst}: ${JSON.stringify(data)}`);
         }
       }
-
-      if (quotes.length === instruments.length) {
-        return quotes;
-      }
-
-      // If missing quotes, fallback to simulated quotes for missing
-      return instruments.map((inst) => quotes.find(q => q.instrument === inst) || {
-        instrument: inst,
-        time: new Date().toISOString(),
-        bid: simPrices[inst] || 1.0850,
-        ask: (simPrices[inst] || 1.0850) + 0.00015
-      });
-
-    } catch (error: any) {
-      logger.error(`Quote fetch failed: ${error.message}. Using simulator fallback.`);
-      return instruments.map((inst) => {
-        const basePrice = simPrices[inst] || 1.0850;
-        return {
-          instrument: inst,
-          time: new Date().toISOString(),
-          bid: basePrice - 0.0001,
-          ask: basePrice + 0.0001,
-        };
-      });
     }
+
+    return quotes;
   }
 
   /**
