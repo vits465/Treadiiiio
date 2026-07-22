@@ -3,8 +3,8 @@ import { NextRequest, NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
 
-const BOT_API_URL = process.env.NEXT_PUBLIC_BOT_API_URL || "http://localhost:4000";
-const API_KEY = process.env.NEXT_PUBLIC_API_KEY || "a3f7c9d2e1b4f6a8c0d5e7f9b2a4c6d8";
+const BOT_API_URL = (process.env.NEXT_PUBLIC_BOT_API_URL || "http://localhost:4000").trim();
+const API_KEY = (process.env.NEXT_PUBLIC_API_KEY || "a3f7c9d2e1b4f6a8c0d5e7f9b2a4c6d8").trim();
 
 export async function GET(req: NextRequest, { params }: { params: { path: string[] } }) {
   return handleProxy(req, params.path);

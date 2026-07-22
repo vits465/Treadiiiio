@@ -27,7 +27,7 @@ const BASE_PRICES: Record<string, number> = {
   'USD/JPY': 155.50,
   'AUD/USD': 0.6650,
   'USD/CHF': 0.9050,
-  'XAU/USD': 2400.00,
+  'XAU/USD': 4146.00,
 };
 
 const SPREADS: Record<string, number> = {
@@ -255,7 +255,25 @@ export class PriceFeed {
     const quotes: Quote[] = [];
 
     for (const inst of instruments) {
-      // Get latest price from cached candles or base price
+      if (!config.USE_SIMULATOR) {
+        try {
+          const { MT5Client } = await import('../broker/mt5Client');
+          const mt5Quote = await MT5Client.getQuote(inst);
+          if (mt5Quote && mt5Quote.bid && mt5Quote.ask) {
+            quotes.push({
+              instrument: inst,
+              time: new Date(mt5Quote.time ? mt5Quote.time * 1000 : Date.now()).toISOString(),
+              bid: mt5Quote.bid,
+              ask: mt5Quote.ask,
+            });
+            continue;
+          }
+        } catch (err: any) {
+          logger.warn(`Could not fetch live MT5 quote for ${inst}: ${err.message}. Falling back to feed.`);
+        }
+      }
+
+      // Fallback or Simulator: Get latest price from cached candles or base price
       const cacheKey = `${inst}_1h_50`;
       const cached = this.candleCache[cacheKey];
       let basePrice = simPrices[inst] || BASE_PRICES[inst] || (inst.includes('JPY') ? 155.50 : 1.0850);

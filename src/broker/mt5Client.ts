@@ -161,7 +161,7 @@ export class MT5Client {
       if (instrument.includes('EUR')) basePrice = 1.0850;
       if (instrument.includes('AUD')) basePrice = 0.6650;
       if (instrument.includes('CHF')) basePrice = 0.9050;
-      if (instrument.includes('XAU')) basePrice = 2400.00;
+      if (instrument.includes('XAU')) basePrice = 4146.00;
 
       const vary = (Math.random() - 0.5) * 0.0020;
       return {

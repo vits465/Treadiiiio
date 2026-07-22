@@ -132,6 +132,15 @@ export function initDb() {
       details TEXT,
       ml_confidence REAL
     );
+
+    CREATE TABLE IF NOT EXISTS ml_models (
+      model_id TEXT PRIMARY KEY,
+      instrument TEXT NOT NULL,
+      trained_at DATETIME NOT NULL,
+      metrics TEXT,
+      shap_importance TEXT,
+      is_active BOOLEAN DEFAULT 0
+    );
   `);
 
   // Create indexes for common queries
