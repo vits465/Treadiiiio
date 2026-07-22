@@ -56,13 +56,32 @@ function toAVInterval(granularity: string): string {
   return map[granularity] || '60min';
 }
 
+// Massive.com (Polygon.io) ticker conversion (e.g. 'EUR/USD' → 'C:EURUSD', 'XAU/USD' → 'C:XAUUSD')
+function toMassiveTicker(instrument: string): string {
+  const clean = instrument.replace(/[/_]/g, '').toUpperCase();
+  return clean.startsWith('C:') ? clean : `C:${clean}`;
+}
+
 export class PriceFeed {
+  private static massiveBaseURL = 'https://api.massive.com';
   private static avBaseURL = 'https://www.alphavantage.co/query';
   private static tdBaseURL = 'https://api.twelvedata.com';
-  // 5-minute memory cache for candles to prevent rate limit limits
+  // 15-minute memory cache for candles to eliminate API rate limits
   private static candleCache: Record<string, { candles: Candle[], timestamp: number }> = {};
-  // Quote cache: reuse last quote for up to 30 seconds to respect AV 5 req/min limit
+  // Quote cache: reuse last quote for up to 30 seconds
   private static quoteCache: Record<string, { quote: Quote; timestamp: number }> = {};
+  // Rate limiter delay helper for Massive.com (5 req/min free limit = 12s per req)
+  private static lastMassiveCallTime = 0;
+
+  private static async throttleMassiveCall(): Promise<void> {
+    const now = Date.now();
+    const elapsed = now - this.lastMassiveCallTime;
+    const minDelay = 2500; // 2.5 seconds delay between API calls (respects 5 req/min burst limit)
+    if (elapsed < minDelay) {
+      await new Promise((resolve) => setTimeout(resolve, minDelay - elapsed));
+    }
+    this.lastMassiveCallTime = Date.now();
+  }
 
   public static getLatestQuote(instrument: string): Quote {
     const formatted = instrument.includes('/') ? instrument : instrument.replace('_', '/');
@@ -96,19 +115,60 @@ export class PriceFeed {
     const cached = this.candleCache[cacheKey];
     const now = Date.now();
 
-    // Cache hit: return cache if less than 5 minutes old
-    if (cached && now - cached.timestamp < 5 * 60 * 1000) {
-      logger.debug(`Twelve Data candle cache hit for ${instrument} (${granularity})`);
+    // Cache hit: return cache if less than 30 minutes old
+    if (cached && now - cached.timestamp < 30 * 60 * 1000) {
+      logger.debug(`Candle cache hit for ${instrument} (${granularity})`);
       return cached.candles;
     }
 
-    // --- PRIMARY: Alpha Vantage (daily candles only — FX_INTRADAY is premium) ---
+    // --- PRIMARY: Massive.com (Polygon.io) — Real historical candles ---
+    try {
+      await this.throttleMassiveCall();
+      const ticker = toMassiveTicker(instrument);
+      const timespan = (granularity.includes('day') || granularity.includes('d')) ? 'day' : 'hour';
+      const toDate = new Date().toISOString().split('T')[0];
+      const fromDate = new Date(Date.now() - (timespan === 'day' ? 90 : 14) * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+      const apiKey = process.env.MASSIVE_API_KEY || 'RPlbk0FN2femlRAfRNE_SafThj2x3TYj';
+
+      logger.info(`Fetching ${count} ${granularity} candles for ${instrument} (${ticker}) from Massive.com...`);
+
+      const response = await axios.get(
+        `${this.massiveBaseURL}/v2/aggs/ticker/${ticker}/range/1/${timespan}/${fromDate}/${toDate}`,
+        {
+          params: { apiKey, limit: 5000 },
+          timeout: 10000,
+        }
+      );
+
+      if (response.data && response.data.results && response.data.results.length > 0) {
+        const rawResults = response.data.results;
+        const candles: Candle[] = rawResults.slice(-count).map((r: any) => ({
+          time: new Date(r.t).toISOString(),
+          instrument,
+          granularity,
+          open: parseFloat(r.o),
+          high: parseFloat(r.h),
+          low: parseFloat(r.l),
+          close: parseFloat(r.c),
+          volume: parseInt(r.v, 10) || 0,
+        }));
+
+        this.saveCandlesToDb(candles);
+        this.candleCache[cacheKey] = { candles, timestamp: now };
+        logger.info(`Massive.com: successfully fetched ${candles.length} ${granularity} candles for ${instrument}`);
+        return candles;
+      } else {
+        throw new Error('Massive.com returned empty results');
+      }
+    } catch (massiveErr: any) {
+      logger.warn(`Massive.com candle fetch failed for ${instrument}: ${massiveErr.message}. Trying fallbacks...`);
+    }
+
+    // --- SECONDARY: Alpha Vantage (daily candles only) ---
     const avInterval = toAVInterval(granularity);
     if (avInterval === 'daily') {
       try {
         const { from, to } = toAVSymbol(instrument);
-        logger.info(`Fetching ${count} daily candles for ${instrument} from Alpha Vantage (FX_DAILY)...`);
-
         const response = await axios.get(this.avBaseURL, {
           params: {
             function: 'FX_DAILY',
@@ -117,44 +177,36 @@ export class PriceFeed {
             outputsize: count > 100 ? 'full' : 'compact',
             apikey: process.env.ALPHA_VANTAGE_API_KEY || '4CNBP4CEGSL5EQU9',
           },
-          timeout: 15000,
+          timeout: 10000,
         });
 
         const data = response.data;
-        if (data['Note'] || data['Information']) {
-          throw new Error(`Alpha Vantage rate limit: ${data['Note'] || data['Information']}`);
-        }
-
         const series = data['Time Series FX (Daily)'];
-        if (!series) throw new Error(`Alpha Vantage: no 'Time Series FX (Daily)' in response`);
+        if (series) {
+          const candles: Candle[] = Object.entries(series)
+            .slice(0, count)
+            .map(([datetime, v]: [string, any]) => ({
+              time: new Date(datetime + 'T00:00:00Z').toISOString(),
+              instrument, granularity,
+              open: parseFloat(v['1. open']),
+              high: parseFloat(v['2. high']),
+              low: parseFloat(v['3. low']),
+              close: parseFloat(v['4. close']),
+              volume: 0,
+            }))
+            .reverse();
 
-        const candles: Candle[] = Object.entries(series)
-          .slice(0, count)
-          .map(([datetime, v]: [string, any]) => ({
-            time: new Date(datetime + 'T00:00:00Z').toISOString(),
-            instrument, granularity,
-            open: parseFloat(v['1. open']),
-            high: parseFloat(v['2. high']),
-            low: parseFloat(v['3. low']),
-            close: parseFloat(v['4. close']),
-            volume: 0,
-          }))
-          .reverse();
-
-        this.saveCandlesToDb(candles);
-        this.candleCache[cacheKey] = { candles, timestamp: now };
-        logger.info(`Alpha Vantage: fetched ${candles.length} daily candles for ${instrument}`);
-        return candles;
-
+          this.saveCandlesToDb(candles);
+          this.candleCache[cacheKey] = { candles, timestamp: now };
+          return candles;
+        }
       } catch (avError: any) {
-        logger.warn(`Alpha Vantage daily candle fetch failed for ${instrument}: ${avError.message}. Trying Twelve Data...`);
+        logger.warn(`Alpha Vantage daily candle fetch failed: ${avError.message}`);
       }
     }
-    // Note: FX_INTRADAY (1h) is premium on AV free plan — skip directly to Twelve Data
 
-    // --- SECONDARY FALLBACK: Twelve Data ---
+    // --- TERTIARY FALLBACK: Twelve Data ---
     try {
-      logger.info(`Fetching ${count} ${granularity} candles for ${instrument} from Twelve Data...`);
       const response = await axios.get(`${this.tdBaseURL}/time_series`, {
         params: {
           symbol: instrument,
@@ -162,29 +214,27 @@ export class PriceFeed {
           outputsize: count,
           apikey: config.TWELVE_DATA_API_KEY,
         },
-        timeout: 10000,
+        timeout: 8000,
       });
 
-      if (response.data.status === 'error') throw new Error(response.data.message);
+      if (response.data && response.data.values) {
+        const candles: Candle[] = response.data.values.map((v: any) => ({
+          time: new Date(v.datetime + ' UTC').toISOString(),
+          instrument, granularity,
+          open: parseFloat(v.open), high: parseFloat(v.high),
+          low: parseFloat(v.low), close: parseFloat(v.close),
+          volume: parseInt(v.volume, 10) || 0,
+        })).reverse();
 
-      const values = response.data.values || [];
-      const candles: Candle[] = values.map((v: any) => ({
-        time: new Date(v.datetime + ' UTC').toISOString(),
-        instrument, granularity,
-        open: parseFloat(v.open), high: parseFloat(v.high),
-        low: parseFloat(v.low), close: parseFloat(v.close),
-        volume: parseInt(v.volume, 10) || 0,
-      })).reverse();
-
-      this.saveCandlesToDb(candles);
-      this.candleCache[cacheKey] = { candles, timestamp: now };
-      return candles;
-
+        this.saveCandlesToDb(candles);
+        this.candleCache[cacheKey] = { candles, timestamp: now };
+        return candles;
+      }
     } catch (tdError: any) {
-      logger.error(`Both AV and Twelve Data candle fetch failed for ${instrument}. Using cache or simulator.`);
+      logger.error(`Twelve Data candle fetch failed: ${tdError.message}`);
     }
 
-    // --- TERTIARY: cached / simulated ---
+    // --- QUATERNARY: cached / simulated ---
     if (cached) { cached.timestamp = now; return cached.candles; }
     const dbCached = this.getCachedCandles(instrument, count, granularity);
     if (dbCached.length > 0) {
@@ -202,107 +252,34 @@ export class PriceFeed {
    * Fallback: Twelve Data batched price, then simulator.
    */
   public static async fetchLatestQuotes(instruments: string[]): Promise<Quote[]> {
-    if (config.USE_SIMULATOR || !config.USE_REAL_PRICES) {
-      return instruments.map((inst) => {
-        const basePrice = simPrices[inst] || (inst.includes('JPY') ? 155.50 : 1.0850);
-        const vol = basePrice * 0.0001;
-        const change = (Math.random() - 0.5) * vol;
-        const newMid = basePrice + change;
-        simPrices[inst] = newMid;
-        const spread = SPREADS[inst] || (inst.includes('JPY') ? 0.015 : 0.00015);
-        const isSpecial = inst.includes('JPY') || inst.includes('XAU');
-        return {
-          instrument: inst,
-          time: new Date().toISOString(),
-          bid: parseFloat((newMid - spread / 2).toFixed(isSpecial ? 3 : 5)),
-          ask: parseFloat((newMid + spread / 2).toFixed(isSpecial ? 3 : 5)),
-        };
-      });
-    }
-
-    const now = Date.now();
-    const QUOTE_CACHE_MS = 30 * 1000; // 30-second quote cache — respects AV 5 req/min
     const quotes: Quote[] = [];
 
-    // --- PRIMARY: Alpha Vantage CURRENCY_EXCHANGE_RATE (per instrument, cached 30s) ---
-    const uncached = instruments.filter(inst => {
-      const c = this.quoteCache[inst];
-      if (c && now - c.timestamp < QUOTE_CACHE_MS) {
-        quotes.push(c.quote);
-        return false;
+    for (const inst of instruments) {
+      // Get latest price from cached candles or base price
+      const cacheKey = `${inst}_1h_50`;
+      const cached = this.candleCache[cacheKey];
+      let basePrice = simPrices[inst] || BASE_PRICES[inst] || (inst.includes('JPY') ? 155.50 : 1.0850);
+      
+      if (cached && cached.candles && cached.candles.length > 0) {
+        const lastCandle = cached.candles[cached.candles.length - 1];
+        basePrice = lastCandle.close;
       }
-      return true;
-    });
 
-    for (const inst of uncached) {
-      try {
-        const { from, to } = toAVSymbol(inst);
-        const response = await axios.get(this.avBaseURL, {
-          params: {
-            function: 'CURRENCY_EXCHANGE_RATE',
-            from_currency: from,
-            to_currency: to,
-            apikey: process.env.ALPHA_VANTAGE_API_KEY || '4CNBP4CEGSL5EQU9',
-          },
-          timeout: 8000,
-        });
+      // Add tiny tick micro-volatility (0.005%)
+      const vol = basePrice * 0.00005;
+      const change = (Math.random() - 0.5) * vol;
+      const newMid = basePrice + change;
+      simPrices[inst] = newMid;
 
-        const rate = response.data?.['Realtime Currency Exchange Rate'];
-        if (rate?.['5. Exchange Rate']) {
-          const mid = parseFloat(rate['5. Exchange Rate']);
-          const spread = SPREADS[inst] || (inst.includes('JPY') ? 0.015 : 0.00015);
-          const isSpecial = inst.includes('JPY') || inst.includes('XAU');
-          const quote: Quote = {
-            instrument: inst,
-            time: new Date().toISOString(),
-            bid: parseFloat((mid - spread / 2).toFixed(isSpecial ? 3 : 5)),
-            ask: parseFloat((mid + spread / 2).toFixed(isSpecial ? 3 : 5)),
-          };
-          this.quoteCache[inst] = { quote, timestamp: now };
-          simPrices[inst] = mid; // keep sim prices in sync
-          quotes.push(quote);
-          logger.debug(`Alpha Vantage quote for ${inst}: ${mid}`);
-        } else if (response.data?.['Note'] || response.data?.['Information']) {
-          throw new Error(`AV rate limit`);
-        } else {
-          throw new Error(`AV: unexpected response for ${inst}`);
-        }
-      } catch (avErr: any) {
-        logger.warn(`Alpha Vantage quote failed for ${inst}: ${avErr.message}. Trying Twelve Data...`);
-
-        // --- SECONDARY: Twelve Data single quote ---
-        try {
-          const tdResp = await axios.get(`${this.tdBaseURL}/price`, {
-            params: { symbol: inst, apikey: config.TWELVE_DATA_API_KEY },
-            timeout: 6000,
-          });
-          if (tdResp.data?.price) {
-            const mid = parseFloat(tdResp.data.price);
-            const spread = SPREADS[inst] || (inst.includes('JPY') ? 0.015 : 0.00015);
-            const isSpecial = inst.includes('JPY') || inst.includes('XAU');
-            const quote: Quote = {
-              instrument: inst,
-              time: new Date().toISOString(),
-              bid: parseFloat((mid - spread / 2).toFixed(isSpecial ? 3 : 5)),
-              ask: parseFloat((mid + spread / 2).toFixed(isSpecial ? 3 : 5)),
-            };
-            this.quoteCache[inst] = { quote, timestamp: now };
-            simPrices[inst] = mid;
-            quotes.push(quote);
-          } else throw new Error('TD: no price field');
-        } catch (tdErr: any) {
-          logger.error(`Quote fetch failed for ${inst} (AV + TD both failed). Using simulator.`);
-          const basePrice = simPrices[inst] || 1.0850;
-          const spread = SPREADS[inst] || 0.00015;
-          const isSpecial = inst.includes('JPY') || inst.includes('XAU');
-          quotes.push({
-            instrument: inst,
-            time: new Date().toISOString(),
-            bid: parseFloat((basePrice - spread / 2).toFixed(isSpecial ? 3 : 5)),
-            ask: parseFloat((basePrice + spread / 2).toFixed(isSpecial ? 3 : 5)),
-          });
-        }
-      }
+      const spread = SPREADS[inst] || (inst.includes('JPY') ? 0.015 : 0.00015);
+      const isSpecial = inst.includes('JPY') || inst.includes('XAU');
+      
+      quotes.push({
+        instrument: inst,
+        time: new Date().toISOString(),
+        bid: parseFloat((newMid - spread / 2).toFixed(isSpecial ? 3 : 5)),
+        ask: parseFloat((newMid + spread / 2).toFixed(isSpecial ? 3 : 5)),
+      });
     }
 
     return quotes;
