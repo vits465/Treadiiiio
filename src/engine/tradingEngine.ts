@@ -517,4 +517,25 @@ export class TradingEngine {
 
     engineEvents.emit('equity_tick', { balance: this.balance, equity, timestamp: time });
   }
+
+  /**
+   * Pause engine and close all active positions.
+   */
+  public static async killAndFlatten(reason: string = 'KILL SWITCH'): Promise<number> {
+    this.paused = true;
+    logger.info(`Trading Engine paused and flattening all positions. Reason: ${reason}`);
+    
+    const openPositions = this.getOpenPositions();
+    let closedCount = 0;
+
+    const { PriceFeed } = require('../data/priceFeed');
+    for (const pos of openPositions) {
+      const quote = PriceFeed.getLatestQuote(pos.instrument);
+      if (quote) {
+        await this.closePosition(pos.id, quote, reason);
+        closedCount++;
+      }
+    }
+    return closedCount;
+  }
 }

@@ -143,18 +143,43 @@ export class RiskManager {
 
     const realizedToday = row?.realizedToday || 0;
     const totalTodayPnL = realizedToday + currentUnrealized;
-    const targetAmount = config.STARTING_BALANCE * (config.RISK_DAILY_PROFIT_LOCK_PCT / 100);
+    
+    const targetAmountPct = config.STARTING_BALANCE * (config.RISK_DAILY_PROFIT_LOCK_PCT / 100);
+    const targetAmountUsd = config.RISK_DAILY_PROFIT_TARGET_USD;
 
-    if (totalTodayPnL >= targetAmount && config.RISK_DAILY_PROFIT_LOCK_PCT > 0) {
-      logger.info(`Risk Management: Daily profit lock reached (PnL: $${totalTodayPnL.toFixed(2)}, Target: $${targetAmount.toFixed(2)}). Halted trading for today to lock in profit.`);
+    const isPctLockMet = config.RISK_DAILY_PROFIT_LOCK_PCT > 0 && totalTodayPnL >= targetAmountPct;
+    const isUsdLockMet = targetAmountUsd > 0 && totalTodayPnL >= targetAmountUsd;
+
+    if (isPctLockMet || isUsdLockMet) {
+      const targetStr = isPctLockMet 
+        ? `$${targetAmountPct.toFixed(2)} (${config.RISK_DAILY_PROFIT_LOCK_PCT}%)` 
+        : `$${targetAmountUsd.toFixed(2)}`;
+
+      const { TradingEngine } = require('../engine/tradingEngine');
       
+      if (!TradingEngine.isPaused()) {
+        logger.info(`Risk Management: Daily profit target reached (PnL: $${totalTodayPnL.toFixed(2)}, Target: ${targetStr}). Auto-pausing and flattening.`);
+        
+        TradingEngine.killAndFlatten('DAILY PROFIT TARGET HIT').then((closedCount: number) => {
+          TelegramNotifier.sendMessage(
+            `🎉 *DAILY PROFIT TARGET HIT*\n` +
+            `Today's PnL: $${totalTodayPnL.toFixed(2)}\n` +
+            `Target: ${targetStr}\n` +
+            `Closed ${closedCount} active position(s).\n` +
+            `Bot has gone OFFLINE automatically to lock in profits. Resume from dashboard.`
+          );
+        }).catch((err: any) => {
+          logger.error(`Error flattening positions on profit target hit: ${err.message}`);
+        });
+      }
+
       RejectionLogger.log(
         'RiskManager.checkDailyProfitLock',
         'DAILY_PROFIT_LOCK',
         instrument,
         undefined,
         undefined,
-        `Today PnL: $${totalTodayPnL.toFixed(2)}, Target: $${targetAmount.toFixed(2)}`
+        `Today PnL: $${totalTodayPnL.toFixed(2)}, Target: ${targetStr}`
       );
       
       return false;

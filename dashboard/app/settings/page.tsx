@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { getBotStatus, pauseBot, startBot, restartBot, BotStatus, getConfig, updateConfig, ConfigData } from '../../lib/api-client';
+import { getBotStatus, pauseBot, startBot, restartBot, BotStatus, getConfig, updateConfig, ConfigData, killBot } from '../../lib/api-client';
 import { 
   Settings,
   Play,
@@ -18,7 +18,8 @@ export default function SettingsPage() {
     RISK_MAX_POSITION_SIZE_PCT: 2,
     CURRENCY_PAIRS: 'EUR_USD',
     TELEGRAM_BOT_TOKEN: '',
-    TELEGRAM_CHAT_ID: ''
+    TELEGRAM_CHAT_ID: '',
+    RISK_DAILY_PROFIT_TARGET_USD: 30.0
   });
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
@@ -71,6 +72,20 @@ export default function SettingsPage() {
     setTimeout(() => {
       fetchStatus();
     }, 4000);
+  };
+  
+  const handleKillBot = async () => {
+    if (!window.confirm("🚨 WARNING: Are you sure you want to activate the KILL SWITCH? This will instantly pause the bot and close ALL open positions!")) return;
+    setActionLoading(true);
+    try {
+      const res = await killBot();
+      alert(`🛑 Kill Switch Activated! Paused bot and closed ${res.closedCount} active position(s).`);
+    } catch (e: any) {
+      console.error(e);
+      alert("Failed to activate kill switch: " + e.message);
+    } finally {
+      await fetchStatus();
+    }
   };
 
   const handleSaveConfig = async (e: React.FormEvent) => {
@@ -149,34 +164,45 @@ export default function SettingsPage() {
               <span className="text-2xl font-mono text-slate-200">{formatUptime(status?.uptime || 0)}</span>
             </div>
 
-            <div className="grid grid-cols-3 gap-4 pt-4 border-t border-white/[0.05]">
-              {!status?.paused ? (
+            <div className="space-y-4 pt-4 border-t border-white/[0.05]">
+              <div className="grid grid-cols-2 gap-4">
+                {!status?.paused ? (
+                  <button 
+                    onClick={handlePause}
+                    disabled={actionLoading}
+                    className="flex flex-col items-center justify-center py-3 space-y-1 bg-amber-500/10 hover:bg-amber-500/20 disabled:opacity-50 border border-amber-500/20 rounded-2xl transition-colors text-amber-400"
+                  >
+                    <Pause className="h-5 w-5" />
+                    <span className="text-xs font-bold tracking-wider">PAUSE BOT</span>
+                  </button>
+                ) : (
+                  <button 
+                    onClick={handleStart}
+                    disabled={actionLoading}
+                    className="flex flex-col items-center justify-center py-3 space-y-1 bg-emerald-500/10 hover:bg-emerald-500/20 disabled:opacity-50 border border-emerald-500/20 rounded-2xl transition-colors text-emerald-400"
+                  >
+                    <Play className="h-5 w-5" />
+                    <span className="text-xs font-bold tracking-wider">RESUME BOT</span>
+                  </button>
+                )}
+
                 <button 
-                  onClick={handlePause}
+                  onClick={handleRestart}
                   disabled={actionLoading}
-                  className="flex flex-col items-center justify-center py-4 space-y-2 bg-amber-500/10 hover:bg-amber-500/20 disabled:opacity-50 border border-amber-500/20 rounded-2xl transition-colors text-amber-400"
+                  className="flex flex-col items-center justify-center py-3 space-y-1 bg-slate-500/10 hover:bg-slate-500/20 disabled:opacity-50 border border-white/[0.05] rounded-2xl transition-colors text-slate-300"
                 >
-                  <Pause className="h-6 w-6" />
-                  <span className="text-xs font-bold tracking-wider">PAUSE</span>
+                  <RefreshCw className={`h-5 w-5 ${actionLoading ? 'animate-spin' : ''}`} />
+                  <span className="text-xs font-bold tracking-wider">REBOOT BOT</span>
                 </button>
-              ) : (
-                <button 
-                  onClick={handleStart}
-                  disabled={actionLoading}
-                  className="flex flex-col items-center justify-center py-4 space-y-2 bg-emerald-500/10 hover:bg-emerald-500/20 disabled:opacity-50 border border-emerald-500/20 rounded-2xl transition-colors text-emerald-400"
-                >
-                  <Play className="h-6 w-6" />
-                  <span className="text-xs font-bold tracking-wider">RESUME</span>
-                </button>
-              )}
+              </div>
 
               <button 
-                onClick={handleRestart}
+                onClick={handleKillBot}
                 disabled={actionLoading}
-                className="flex flex-col items-center justify-center py-4 space-y-2 bg-rose-500/10 hover:bg-rose-500/20 disabled:opacity-50 border border-rose-500/20 rounded-2xl transition-colors text-rose-400 col-span-2"
+                className="w-full py-4 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white font-extrabold tracking-widest uppercase rounded-2xl transition-colors shadow-lg shadow-rose-950/20 border border-rose-500/30 flex justify-center items-center space-x-2 text-sm"
               >
-                <RefreshCw className={`h-6 w-6 ${actionLoading ? 'animate-spin' : ''}`} />
-                <span className="text-xs font-bold tracking-wider">REBOOT ENGINE</span>
+                <span className="h-3 w-3 rounded-full bg-white animate-ping"></span>
+                <span>🚨 EMERGENCY KILL SWITCH 🚨</span>
               </button>
             </div>
             
@@ -217,6 +243,20 @@ export default function SettingsPage() {
                 className="w-full bg-slate-900/50 border border-white/[0.1] rounded-xl px-4 py-3 text-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all"
               />
               <p className="text-[10px] text-slate-500 mt-1 font-medium">Comma separated (e.g., EUR_USD, GBP_JPY).</p>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Daily Profit Target ($ USD)</label>
+              <input 
+                type="number" 
+                step="0.01"
+                min="0"
+                required
+                value={config.RISK_DAILY_PROFIT_TARGET_USD ?? 30.0}
+                onChange={e => setConfig({...config, RISK_DAILY_PROFIT_TARGET_USD: parseFloat(e.target.value)})}
+                className="w-full bg-slate-900/50 border border-white/[0.1] rounded-xl px-4 py-3 text-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all"
+              />
+              <p className="text-[10px] text-slate-500 mt-1 font-medium">When total PnL reaches this target, bot flattens all positions and pauses automatically.</p>
             </div>
             
             <div className="pt-4 border-t border-white/[0.05]">

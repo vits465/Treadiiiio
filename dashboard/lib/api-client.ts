@@ -161,6 +161,7 @@ export const getBotStatus = () => apiFetch<BotStatus>("/api/bot/status");
 export const pauseBot = () => apiFetch<{ paused: boolean }>("/api/bot/pause", { method: "POST" });
 export const startBot = () => apiFetch<{ paused: boolean }>("/api/bot/start", { method: "POST" });
 export const restartBot = () => apiFetch<{ restarting: boolean }>("/api/bot/restart", { method: "POST" });
+export const killBot = () => apiFetch<{ killed: boolean; closedCount: number }>("/api/bot/kill", { method: "POST" });
 
 export const executeManualTrade = (instrument: string, action: 'BUY'|'SELL', stopLoss?: number, takeProfit?: number) => 
   apiFetch<{ success: boolean; orderId: string }>("/api/trade/execute", {
@@ -181,6 +182,7 @@ export interface ConfigData {
   CURRENCY_PAIRS: string;
   TELEGRAM_BOT_TOKEN: string;
   TELEGRAM_CHAT_ID: string;
+  RISK_DAILY_PROFIT_TARGET_USD?: number;
 }
 
 export const getConfig = () => apiFetch<ConfigData>("/api/config");

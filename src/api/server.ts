@@ -574,19 +574,8 @@ app.post('/api/bot/start', (req, res) => {
 // Kill Switch — pause AND flatten all open positions
 app.post('/api/bot/kill', async (req, res) => {
   try {
-    TradingEngine.setPaused(true);
-    const openPositions = TradingEngine.getOpenPositions();
-    let closedCount = 0;
+    const closedCount = await TradingEngine.killAndFlatten('KILL SWITCH');
 
-    for (const pos of openPositions) {
-      const quote = PriceFeed.getLatestQuote(pos.instrument);
-      if (quote) {
-        await TradingEngine.closePosition(pos.id, quote, 'KILL SWITCH');
-        closedCount++;
-      }
-    }
-
-    // Telegram alert is sent by tradingEngine's trade_closed event + the TelegramNotifier import
     const { TelegramNotifier } = require('../notifier/telegram');
     TelegramNotifier.sendMessage(`🛑 *KILL SWITCH ACTIVATED*\n${closedCount} position(s) closed. Trading HALTED.`);
 
@@ -667,12 +656,13 @@ app.get('/api/config', (req, res) => {
     CURRENCY_PAIRS: config.CURRENCY_PAIRS.join(', '),
     TELEGRAM_BOT_TOKEN: maskToken(config.TELEGRAM_BOT_TOKEN),
     TELEGRAM_CHAT_ID: config.TELEGRAM_CHAT_ID || '',
+    RISK_DAILY_PROFIT_TARGET_USD: config.RISK_DAILY_PROFIT_TARGET_USD,
   });
 });
 
 app.post('/api/config', configRateLimiter, (req, res) => {
   try {
-    const { RISK_MAX_POSITION_SIZE_PCT, CURRENCY_PAIRS, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID } = req.body;
+    const { RISK_MAX_POSITION_SIZE_PCT, CURRENCY_PAIRS, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, RISK_DAILY_PROFIT_TARGET_USD } = req.body;
     const envPath = path.resolve(process.cwd(), '.env');
     let envData = fs.readFileSync(envPath, 'utf-8');
 
@@ -714,6 +704,13 @@ app.post('/api/config', configRateLimiter, (req, res) => {
       }
     }
 
+    if (RISK_DAILY_PROFIT_TARGET_USD !== undefined) {
+      const targetVal = parseFloat(sanitize(String(RISK_DAILY_PROFIT_TARGET_USD)));
+      if (isNaN(targetVal) || targetVal < 0) {
+        validationErrors.push('RISK_DAILY_PROFIT_TARGET_USD must be a non-negative number.');
+      }
+    }
+
     if (validationErrors.length > 0) {
       return res.status(400).json({ error: validationErrors.join(' | ') });
     }
@@ -740,6 +737,9 @@ app.post('/api/config', configRateLimiter, (req, res) => {
     }
     if (TELEGRAM_CHAT_ID !== undefined) {
       updateEnv('TELEGRAM_CHAT_ID', String(TELEGRAM_CHAT_ID));
+    }
+    if (RISK_DAILY_PROFIT_TARGET_USD !== undefined) {
+      updateEnv('RISK_DAILY_PROFIT_TARGET_USD', String(RISK_DAILY_PROFIT_TARGET_USD));
     }
 
     fs.writeFileSync(envPath, envData);

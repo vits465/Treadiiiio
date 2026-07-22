@@ -118,6 +118,10 @@ async function bootstrap() {
       const currentEquity = TradingEngine.getBalance() + currentUnrealized;
       TradingEngine.checkCircuitBreakers(currentEquity);
 
+      // Evaluate daily profit target every tick to enable automatic offline transition
+      const { RiskManager } = require('./risk/riskManager');
+      RiskManager.checkDailyProfitLock(TradingEngine.getBalance(), currentUnrealized, 'GLOBAL');
+
       // B. Process each instrument
       for (const pair of config.CURRENCY_PAIRS) {
         const quote = quotes.find((q) => q.instrument === pair);
