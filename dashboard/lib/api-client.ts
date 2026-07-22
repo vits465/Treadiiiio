@@ -71,13 +71,12 @@ export interface StrategyToggle {
 // ---------- Fetch helpers ----------
 
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
+  // Use Vercel Serverless Proxy endpoint (/api/bot/...) to bypass client-side CORS and Localtunnel blockades
+  const relativePath = path.startsWith("/api") ? path.substring(4) : path;
+  const res = await fetch(`/api/bot${relativePath}`, {
     ...init,
     headers: { 
       "Content-Type": "application/json", 
-      "x-api-key": API_KEY, 
-      "Bypass-Tunnel-Reminder": "true",
-      "bypass-tunnel-reminder": "true",
       ...init?.headers 
     },
   });
