@@ -188,11 +188,20 @@ export const updateConfig = (data: Partial<ConfigData>) =>
 
 // ---------- Live updates (WebSocket) ----------
 
+export interface LogRecord {
+  timestamp: string;
+  level: string;
+  message: string;
+}
+
+export const getLogs = () => apiFetch<LogRecord[]>("/api/logs");
+
 type LiveEvent =
   | { type: "position_update"; data: Position }
   | { type: "trade_closed"; data: Trade }
   | { type: "equity_tick"; data: EquitySnapshot }
-  | { type: "signal_generated"; data: { instrument: string; source: string; action: string } };
+  | { type: "signal_generated"; data: { instrument: string; source: string; action: string } }
+  | { type: "log_entry"; data: LogRecord };
 
 export function connectLiveFeed(onEvent: (event: LiveEvent) => void): () => void {
   let ws: WebSocket | null = null;

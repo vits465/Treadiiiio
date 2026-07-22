@@ -11,7 +11,8 @@ import {
   closeManualTrade,
   Summary, 
   Position, 
-  EquitySnapshot 
+  EquitySnapshot,
+  LogRecord
 } from '../lib/api-client';
 import { 
   TrendingUp, 
@@ -41,6 +42,7 @@ import { TradingViewChart } from './components/TradingViewChart';
 import { MarketHeatmap } from './components/MarketHeatmap';
 import { ProfitProgressRing } from './components/ProfitProgressRing';
 import { TradeRationaleModal } from './components/TradeRationaleModal';
+import { BotConsoleLogs } from './components/BotConsoleLogs';
 import { sounds, sendDesktopNotification } from '../lib/audioNotifier';
 
 export default function OverviewPage() {
@@ -53,6 +55,7 @@ export default function OverviewPage() {
   });
   const [positions, setPositions] = useState<Position[]>([]);
   const [equityHistory, setEquityHistory] = useState<EquitySnapshot[]>([]);
+  const [logs, setLogs] = useState<LogRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [tradeLoading, setTradeLoading] = useState(false);
 
@@ -140,6 +143,9 @@ export default function OverviewPage() {
         }
         setPositions(prev => prev.filter(p => p.id !== trade.id));
         getSummary().then(setSummary);
+      } else if (event.type === 'log_entry') {
+        const logRecord = event.data;
+        setLogs(prev => [...prev.slice(-150), logRecord]);
       }
     });
 
@@ -347,6 +353,9 @@ export default function OverviewPage() {
           </div>
         )}
       </div>
+
+      {/* Live Bot Engine Console Logs Terminal */}
+      <BotConsoleLogs logs={logs} />
 
       {/* Trade Rationale Modal */}
       <TradeRationaleModal item={selectedPosition} onClose={() => setSelectedPosition(null)} />

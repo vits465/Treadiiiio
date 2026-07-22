@@ -1,10 +1,51 @@
 import * as winston from 'winston';
 import 'winston-daily-rotate-file';
 
+export interface LogRecord {
+  timestamp: string;
+  level: string;
+  message: string;
+}
+
+const recentLogsBuffer: LogRecord[] = [];
+const MAX_LOGS = 150;
+let logBroadcastCallback: ((log: LogRecord) => void) | null = null;
+
+export function setLogBroadcastCallback(cb: (log: LogRecord) => void) {
+  logBroadcastCallback = cb;
+}
+
+export function getRecentLogs(): LogRecord[] {
+  return [...recentLogsBuffer];
+}
+
+// Custom format to capture and broadcast log entries
+const memoryAndWsFormat = winston.format((info) => {
+  const record: LogRecord = {
+    timestamp: (info.timestamp as string) || new Date().toISOString(),
+    level: (info.level as string) || 'info',
+    message: (info.message as string) || ''
+  };
+
+  recentLogsBuffer.push(record);
+  if (recentLogsBuffer.length > MAX_LOGS) {
+    recentLogsBuffer.shift();
+  }
+
+  if (logBroadcastCallback) {
+    try {
+      logBroadcastCallback(record);
+    } catch {}
+  }
+
+  return info;
+})();
+
 const logFormat = winston.format.combine(
   winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
   winston.format.errors({ stack: true }),
   winston.format.splat(),
+  memoryAndWsFormat,
   winston.format.json()
 );
 

@@ -2,7 +2,7 @@ import express from 'express';
 import * as http from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import { config } from '../config';
-import { logger } from '../logger';
+import { logger, getRecentLogs, setLogBroadcastCallback } from '../logger';
 import { db } from '../db';
 import { TradingEngine, engineEvents } from '../engine/tradingEngine';
 import { PriceFeed } from '../data/priceFeed';
@@ -73,7 +73,12 @@ app.get('/api/health', async (req, res) => {
   }
 });
 
-// Apply auth middleware to all /api/* routes AFTER the health endpoint
+// Logs endpoint (public or authenticated)
+app.get('/api/logs', (req, res) => {
+  res.json(getRecentLogs());
+});
+
+// Apply auth middleware to all /api/* routes AFTER public endpoints
 app.use('/api', apiKeyAuth);
 
 const server = http.createServer(app);
@@ -769,6 +774,10 @@ app.get('/api/rejections', (req, res) => {
 });
 
 export function startApiServer() {
+  setLogBroadcastCallback((logRecord) => {
+    broadcastEvent({ type: 'log_entry', data: logRecord });
+  });
+
   const port = config.PORT;
   server.listen(port, () => {
     logger.info(`🚀 Unified REST & WebSocket server running at http://localhost:${port}`);
