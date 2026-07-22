@@ -11,6 +11,7 @@ import { MaCrossoverStrategy } from './strategy/maCrossover';
 import { RsiMeanReversionStrategy } from './strategy/rsiMeanReversion';
 import { BollingerBandsStrategy } from './strategy/bollingerBands';
 import { LossRecoveryStrategy } from './strategy/lossRecovery';
+import { SmartMoneyConceptsStrategy } from './strategy/smartMoneyConcepts';
 import { MLClient } from './ml-client/index';
 import { RejectionLogger } from './risk/rejectionLogger';
 import { checkRuleConfirmations } from './risk/confirmations';
@@ -58,6 +59,7 @@ async function bootstrap() {
     rsi_reversion: new RsiMeanReversionStrategy(),
     bollinger_bands: new BollingerBandsStrategy(),
     loss_recovery: new LossRecoveryStrategy(),
+    smc_liquidity: new SmartMoneyConceptsStrategy(),
   };
 
   const enabledStrategies: Strategy[] = [];

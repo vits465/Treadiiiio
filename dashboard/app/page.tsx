@@ -44,6 +44,7 @@ import { ProfitProgressRing } from './components/ProfitProgressRing';
 import { TradeRationaleModal } from './components/TradeRationaleModal';
 import { BotConsoleLogs } from './components/BotConsoleLogs';
 import { ForexFactoryCalendar } from './components/ForexFactoryCalendar';
+import { AICopilotChat } from './components/AICopilotChat';
 import { sounds, sendDesktopNotification } from '../lib/audioNotifier';
 
 export default function OverviewPage() {
@@ -363,6 +364,9 @@ export default function OverviewPage() {
 
       {/* Trade Rationale Modal */}
       <TradeRationaleModal item={selectedPosition} onClose={() => setSelectedPosition(null)} />
+
+      {/* AI Strategy Copilot Chatbot */}
+      <AICopilotChat />
     </div>
   );
 }
