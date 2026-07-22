@@ -21,6 +21,15 @@ export async function DELETE(req: NextRequest, { params }: { params: { path: str
 async function handleProxy(req: NextRequest, pathSegments: string[]) {
   try {
     const subpath = pathSegments.join('/');
+    
+    if (subpath === 'debug-env') {
+      return NextResponse.json({
+        BOT_API_URL,
+        API_KEY: API_KEY ? `${API_KEY.substring(0, 4)}...${API_KEY.substring(API_KEY.length - 4)}` : 'missing',
+        NODE_ENV: process.env.NODE_ENV,
+      });
+    }
+
     const targetUrl = `${BOT_API_URL}/api/${subpath}${req.nextUrl.search}`;
 
     const headers: Record<string, string> = {
