@@ -392,6 +392,16 @@ export class TradingEngine {
         WHERE id = ?
       `).run(unrealizedPnL, pos.id);
 
+      // Cash Take Profit check (e.g. $10.00 target cash profit per trade)
+      const maxTradeProfitUsd = config.RISK_TRADE_TAKE_PROFIT_USD;
+      if (unrealizedPnL >= maxTradeProfitUsd && maxTradeProfitUsd > 0) {
+        logger.info(`[CASH TAKE PROFIT] Position ${pos.id} reached profit of $${unrealizedPnL.toFixed(2)} (Target: $${maxTradeProfitUsd.toFixed(2)}). Closing to lock in profit...`);
+        if (quote) {
+          await this.closePosition(pos.id, quote, 'Cash Take Profit Hit');
+          continue;
+        }
+      }
+
       // --- Trailing Stop Logic ---
       if (quote) {
         const isJpy = pos.instrument.includes('JPY');
