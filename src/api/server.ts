@@ -14,6 +14,9 @@ import rateLimit from 'express-rate-limit';
 import axios from 'axios';
 
 const app = express();
+// Trust one proxy hop (localtunnel/Vercel reverse proxy) so express-rate-limit
+// can correctly resolve client IPs from the X-Forwarded-For header.
+app.set('trust proxy', 1);
 app.use(express.json());
 
 // CORS — restricted to configured origin (not wildcard)

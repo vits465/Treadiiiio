@@ -139,8 +139,8 @@ export class PriceFeed {
       }
       
       const simCandles = this.generateSimulatedCandles(instrument, count, granularity);
-      // Cooldown: cache simulated candles in memory for 1 minute before retrying API
-      this.candleCache[cacheKey] = { candles: simCandles, timestamp: now - 4 * 60 * 1000 };
+      // Full 5-minute cooldown: cache simulated candles so we don't retry Twelve Data again until the window expires
+      this.candleCache[cacheKey] = { candles: simCandles, timestamp: now };
       return simCandles;
     }
   }
