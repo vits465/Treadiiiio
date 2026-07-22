@@ -2,6 +2,7 @@
  * start-tunnel.js
  * Self-healing permanent localtunnel process manager.
  * Auto-restarts if localtunnel drops, returns 502/503, or times out.
+ * Dynamically detects active subdomain to avoid restart loops.
  */
 const { spawn } = require('child_process');
 const https = require('https');
@@ -9,17 +10,37 @@ const https = require('https');
 let tunnelProcess = null;
 let healthCheckInterval = null;
 let isRestarting = false;
+let activeUrl = '';
 
 function startTunnel() {
   if (isRestarting) return;
   
-  console.log('[TUNNEL] Starting localtunnel on port 4000 (subdomain: treadiiiio-bot-5532)...');
+  console.log('[TUNNEL] Starting localtunnel on port 4000 (subdomain: treadiiiio-bot-8877)...');
   
   tunnelProcess = spawn(
     'npx',
-    ['localtunnel', '--port', '4000', '--subdomain', 'treadiiiio-bot-5532'],
-    { stdio: 'inherit', shell: true }
+    ['localtunnel', '--port', '4000', '--subdomain', 'treadiiiio-bot-8877'],
+    { shell: true }
   );
+
+  tunnelProcess.stdout.on('data', (data) => {
+    const text = data.toString();
+    process.stdout.write(text); // print stdout to terminal
+
+    const match = text.match(/your url is:\s+(https:\/\/[a-zA-Z0-9\-\.]+)/i);
+    if (match) {
+      activeUrl = match[1].trim();
+      console.log(`\n[TUNNEL] Handshake completed. Active URL: ${activeUrl}`);
+      if (activeUrl !== 'https://treadiiiio-bot-8877.loca.lt') {
+        console.warn(`[TUNNEL WARNING] Could not bind to target subdomain. Using fallback: ${activeUrl}`);
+      }
+      startHealthCheck();
+    }
+  });
+
+  tunnelProcess.stderr.on('data', (data) => {
+    process.stderr.write(data.toString());
+  });
 
   tunnelProcess.on('close', (code) => {
     console.log(`[TUNNEL] Localtunnel process exited with code ${code}.`);
@@ -40,26 +61,30 @@ function cleanupAndScheduleRestart() {
     clearInterval(healthCheckInterval);
     healthCheckInterval = null;
   }
+  
+  activeUrl = '';
 
-  console.log('[TUNNEL] Restarting localtunnel in 5 seconds...');
+  console.log('[TUNNEL] Restarting localtunnel in 7 seconds...');
   setTimeout(() => {
     isRestarting = false;
     startTunnel();
-    startHealthCheck();
-  }, 5000);
+  }, 7000);
 }
 
 function startHealthCheck() {
   if (healthCheckInterval) clearInterval(healthCheckInterval);
-  
+  if (!activeUrl) return;
+
   // Wait 12 seconds after startup before starting checks to let it establish connection
   setTimeout(() => {
-    if (isRestarting) return;
+    if (isRestarting || !activeUrl) return;
     
     healthCheckInterval = setInterval(() => {
-      if (isRestarting) return;
+      if (isRestarting || !activeUrl) return;
 
-      const req = https.get('https://treadiiiio-bot-5532.loca.lt/api/config', {
+      const targetUrl = `${activeUrl}/api/config`;
+      
+      const req = https.get(targetUrl, {
         headers: {
           'x-api-key': 'a3f7c9d2e1b4f6a8c0d5e7f9b2a4c6d8',
           'Bypass-Tunnel-Reminder': 'true'
@@ -70,18 +95,18 @@ function startHealthCheck() {
           // Tunnel is healthy
           return;
         }
-        console.warn(`[TUNNEL HEALTH] Unhealthy response: ${res.statusCode}. Restarting...`);
+        console.warn(`[TUNNEL HEALTH] Unhealthy response from ${targetUrl}: ${res.statusCode}. Restarting...`);
         req.destroy();
         killTunnelAndRestart();
       });
 
       req.on('error', (err) => {
-        console.warn(`[TUNNEL HEALTH] Request failed: ${err.message}. Restarting...`);
+        console.warn(`[TUNNEL HEALTH] Request to ${targetUrl} failed: ${err.message}. Restarting...`);
         killTunnelAndRestart();
       });
 
       req.on('timeout', () => {
-        console.warn('[TUNNEL HEALTH] Request timed out. Restarting...');
+        console.warn(`[TUNNEL HEALTH] Request to ${targetUrl} timed out. Restarting...`);
         req.destroy();
         killTunnelAndRestart();
       });
@@ -94,7 +119,6 @@ function killTunnelAndRestart() {
   console.log('[TUNNEL] Killing unresponsive tunnel...');
   if (tunnelProcess) {
     try {
-      // In Windows, shell spawns need taskkill to clean up tree
       const { exec } = require('child_process');
       exec(`taskkill /pid ${tunnelProcess.pid} /t /f`, () => {});
       tunnelProcess.kill('SIGKILL');
@@ -104,4 +128,3 @@ function killTunnelAndRestart() {
 }
 
 startTunnel();
-startHealthCheck();
