@@ -90,6 +90,11 @@ export class NewsFilter {
     }
   }
 
+  public static async getEvents(): Promise<NewsEvent[]> {
+    await this.ensureCalendar();
+    return [...this.cachedEvents];
+  }
+
   /**
    * Checks if a trade for the given instrument is allowed right now based on news impact.
    * Returns { allowed: boolean, reason?: string }

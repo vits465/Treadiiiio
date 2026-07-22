@@ -78,6 +78,17 @@ app.get('/api/logs', (req, res) => {
   res.json(getRecentLogs());
 });
 
+// ForexFactory Economic Calendar & News endpoint
+import { NewsFilter } from '../risk/newsFilter';
+app.get('/api/news', async (req, res) => {
+  try {
+    const events = await NewsFilter.getEvents();
+    res.json(events);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Apply auth middleware to all /api/* routes AFTER public endpoints
 app.use('/api', apiKeyAuth);
 

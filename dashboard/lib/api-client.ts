@@ -188,6 +188,19 @@ export const updateConfig = (data: Partial<ConfigData>) =>
 
 // ---------- Live updates (WebSocket) ----------
 
+export interface NewsEvent {
+  title: string;
+  country: string;
+  date: string;
+  time: string;
+  impact: string;
+  forecast: string;
+  previous: string;
+  timestamp: number;
+}
+
+export const getNews = () => apiFetch<NewsEvent[]>("/api/news");
+
 export interface LogRecord {
   timestamp: string;
   level: string;

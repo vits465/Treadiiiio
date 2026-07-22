@@ -43,6 +43,7 @@ import { MarketHeatmap } from './components/MarketHeatmap';
 import { ProfitProgressRing } from './components/ProfitProgressRing';
 import { TradeRationaleModal } from './components/TradeRationaleModal';
 import { BotConsoleLogs } from './components/BotConsoleLogs';
+import { ForexFactoryCalendar } from './components/ForexFactoryCalendar';
 import { sounds, sendDesktopNotification } from '../lib/audioNotifier';
 
 export default function OverviewPage() {
@@ -353,6 +354,9 @@ export default function OverviewPage() {
           </div>
         )}
       </div>
+
+      {/* ForexFactory Economic Calendar & News */}
+      <ForexFactoryCalendar />
 
       {/* Live Bot Engine Console Logs Terminal */}
       <BotConsoleLogs logs={logs} />
