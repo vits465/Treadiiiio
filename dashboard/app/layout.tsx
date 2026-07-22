@@ -53,7 +53,24 @@ export default function RootLayout({
     checkAuth();
   }, [pathname, router]);
 
-  // WebSocket Live status
+  // REST-based connectivity status (reliable, works through Vercel proxy)
+  const [botOnline, setBotOnline] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    const checkHealth = async () => {
+      try {
+        const res = await fetch('/api/bot/summary');
+        if (!cancelled) setBotOnline(res.ok);
+      } catch {
+        if (!cancelled) setBotOnline(false);
+      }
+    };
+    checkHealth();
+    const interval = setInterval(checkHealth, 10000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, []);
+
+  // WebSocket Live feed (best-effort, for live updates only)
   useEffect(() => {
     const wsBaseUrl = process.env.NEXT_PUBLIC_BOT_WS_URL ?? "ws://localhost:4000/ws";
     const apiKey = process.env.NEXT_PUBLIC_API_KEY ?? "a3f7c9d2e1b4f6a8c0d5e7f9b2a4c6d8";
@@ -67,12 +84,12 @@ export default function RootLayout({
         ws.onopen = () => setWsConnected(true);
         ws.onclose = () => {
           setWsConnected(false);
-          reconnectTimeout = setTimeout(connect, 1000);
+          reconnectTimeout = setTimeout(connect, 5000);
         };
         ws.onerror = () => setWsConnected(false);
       } catch (e) {
         setWsConnected(false);
-        reconnectTimeout = setTimeout(connect, 1000);
+        reconnectTimeout = setTimeout(connect, 5000);
       }
     };
     connect();
@@ -188,10 +205,10 @@ export default function RootLayout({
               </button>
 
               <div className={`flex items-center space-x-1.5 px-2.5 py-1.5 rounded-full border text-[9px] md:text-xs font-bold tracking-wider ${
-                wsConnected ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border-rose-500/20'
+                botOnline ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border-rose-500/20'
               }`}>
-                {wsConnected ? (
-                  <><Wifi className="h-3 w-3 animate-pulse" /><span className="hidden md:inline">WS LIVE</span></>
+                {botOnline ? (
+                  <><Wifi className="h-3 w-3 animate-pulse" /><span className="hidden md:inline">ONLINE</span></>
                 ) : (
                   <><WifiOff className="h-3 w-3" /><span className="hidden md:inline">OFFLINE</span></>
                 )}

@@ -2,7 +2,7 @@
  * start-tunnel.js
  * Self-healing permanent localtunnel process manager.
  * Auto-restarts if localtunnel drops, returns 502/503, or times out.
- * Dynamically detects active subdomain to avoid restart loops.
+ * Drains response streams to prevent Node.js socket timeouts.
  */
 const { spawn } = require('child_process');
 const https = require('https');
@@ -75,7 +75,7 @@ function startHealthCheck() {
   if (healthCheckInterval) clearInterval(healthCheckInterval);
   if (!activeUrl) return;
 
-  // Wait 12 seconds after startup before starting checks to let it establish connection
+  // Wait 15 seconds after startup before starting checks to let it settle
   setTimeout(() => {
     if (isRestarting || !activeUrl) return;
     
@@ -87,12 +87,17 @@ function startHealthCheck() {
       const req = https.get(targetUrl, {
         headers: {
           'x-api-key': 'a3f7c9d2e1b4f6a8c0d5e7f9b2a4c6d8',
-          'Bypass-Tunnel-Reminder': 'true'
+          'Bypass-Tunnel-Reminder': 'true',
+          'bypass-tunnel-reminder': 'true',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         },
-        timeout: 6000
+        timeout: 10000
       }, (res) => {
+        // DRAIN RESPONSE STREAM TO PREVENT SOCKET TIMEOUT HANGS
+        res.resume();
+
         if (res.statusCode === 200) {
-          // Tunnel is healthy
+          // Tunnel is healthy!
           return;
         }
         console.warn(`[TUNNEL HEALTH] Unhealthy response from ${targetUrl}: ${res.statusCode}. Restarting...`);
@@ -110,8 +115,8 @@ function startHealthCheck() {
         req.destroy();
         killTunnelAndRestart();
       });
-    }, 15000);
-  }, 12000);
+    }, 20000);
+  }, 15000);
 }
 
 function killTunnelAndRestart() {

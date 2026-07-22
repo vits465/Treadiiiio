@@ -211,7 +211,7 @@ export default function OverviewPage() {
           <MarketHeatmap />
         </div>
         <div>
-          <ProfitProgressRing currentProfit={summary.totalPnl} targetProfit={300} />
+          <ProfitProgressRing currentProfit={summary.totalPnl} targetProfit={30} />
         </div>
       </div>
 
