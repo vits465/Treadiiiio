@@ -29,7 +29,7 @@ module.exports = {
       },
     },
     {
-      // Permanent fixed-subdomain tunnel — URL never changes: https://vits-trading-bot-engine.loca.lt
+      // Permanent fixed-subdomain tunnel — URL: https://treadiiiio-bot-5531.loca.lt
       name: "tunnel",
       script: "./start-tunnel.js",
       cwd: "./",

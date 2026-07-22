@@ -9,7 +9,7 @@ const { spawn } = require('child_process');
 
 const tunnel = spawn(
   process.platform === 'win32' ? 'npx.cmd' : 'npx',
-  ['localtunnel', '--port', '4000', '--subdomain', 'vits-trading-bot-engine'],
+  ['localtunnel', '--port', '4000', '--subdomain', 'treadiiiio-bot-5531'],
   { stdio: 'inherit', shell: false }
 );
 
