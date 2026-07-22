@@ -118,6 +118,29 @@ export default function RootLayout({
           </nav>
 
           <div className="flex items-center space-x-4">
+            {/* Emergency Flatten Button */}
+            <button
+              onClick={async () => {
+                if (confirm("⚠️ EMERGENCY KILL: Close all MT5 positions and HALT trading immediately?")) {
+                  try {
+                    const apiKey = process.env.NEXT_PUBLIC_API_KEY ?? "a3f7c9d2e1b4f6a8c0d5e7f9b2a4c6d8";
+                    const apiBase = process.env.NEXT_PUBLIC_BOT_API_URL ?? "https://forex-trading-bot-hga8.onrender.com";
+                    await fetch(`${apiBase}/api/bot/kill`, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json", "x-api-key": apiKey }
+                    });
+                    alert("🛑 Kill Switch Executed! All MT5 positions closed and engine paused.");
+                  } catch (e: any) {
+                    alert("Failed to execute Kill Switch: " + e.message);
+                  }
+                }
+              }}
+              className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-400 border border-rose-500/40 text-xs font-bold transition-all shadow-lg shadow-rose-500/10 font-mono"
+            >
+              <ShieldAlert className="h-3.5 w-3.5" />
+              <span>EMERGENCY FLATTEN</span>
+            </button>
+
             <div className={`flex items-center space-x-2 px-3 py-1.5 rounded-full border text-xs font-bold tracking-wider ${
               wsConnected ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border-rose-500/20'
             }`}>

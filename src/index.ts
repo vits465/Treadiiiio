@@ -27,17 +27,29 @@ async function bootstrap() {
   // Initialize Notifier
   TelegramNotifier.initialize(config.TELEGRAM_BOT_TOKEN, config.TELEGRAM_CHAT_ID);
 
+  const lastTelegramUpdate = new Map<string, number>();
+
   engineEvents.on('position_update', (pos, price) => {
     logger.info(`[POSITION UPDATE] ${pos.instrument} @ ${price}`);
+    const now = Date.now();
+    const lastUpdate = lastTelegramUpdate.get(pos.id) || 0;
+
     if (pos.unrealizedPnL === 0) {
       const emoji = pos.action === 'BUY' ? '🟢' : '🔴';
-      TelegramNotifier.sendMessage(`${emoji} *Position Opened: ${pos.instrument}*\nAction: ${pos.action}\nEntry: ${pos.entryPrice}\nStrategy: ${pos.strategy}`);
+      const safeStrategy = pos.strategy.replace(/_/g, ' ');
+      TelegramNotifier.sendMessage(`${emoji} *Position Opened: ${pos.instrument}*\nAction: ${pos.action}\nEntry: ${pos.entryPrice}\nStrategy: ${safeStrategy}`);
+      lastTelegramUpdate.set(pos.id, now);
+    } else if (now - lastUpdate > 5 * 60 * 1000) {
+      const pnlEmoji = pos.unrealizedPnL >= 0 ? '📈' : '📉';
+      TelegramNotifier.sendMessage(`⏳ *Position Update: ${pos.instrument}*\nAction: ${pos.action}\nCurrent PnL: $${pos.unrealizedPnL.toFixed(2)} ${pnlEmoji}`);
+      lastTelegramUpdate.set(pos.id, now);
     }
   });
 
   engineEvents.on('trade_closed', (trade) => {
     const emoji = trade.pnl >= 0 ? '🟢' : '🔴';
-    TelegramNotifier.sendMessage(`${emoji} *Trade Closed: ${trade.instrument}*\nStrategy: ${trade.strategy}\nPnL: $${trade.pnl.toFixed(2)}`);
+    const safeStrategy = trade.strategy.replace(/_/g, ' ');
+    TelegramNotifier.sendMessage(`${emoji} *Trade Closed: ${trade.instrument}*\nStrategy: ${safeStrategy}\nPnL: $${trade.pnl.toFixed(2)}`);
   });
 
   // 2. Instantiate strategies
@@ -66,7 +78,7 @@ async function bootstrap() {
     for (const pair of config.CURRENCY_PAIRS) {
       try {
         const testCandles = await PriceFeed.fetchCandles(pair, 50, config.CANDLE_GRANULARITY);
-        await MLClient.predict(pair, testCandles);
+        await MLClient.predict(pair, testCandles, true);
         logger.info(`ML model for ${pair} is loaded and ready.`);
       } catch (err: any) {
         if (err.message === 'MODEL_NOT_FOUND') {

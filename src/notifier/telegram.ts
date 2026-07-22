@@ -214,10 +214,18 @@ export class TelegramNotifier {
       const req = https.request(options, (res) => {
         let data = '';
         res.on('data', (chunk) => data += chunk);
-        res.on('end', () => resolve());
+        res.on('end', () => {
+          if (res.statusCode && res.statusCode >= 400) {
+            logger.error(`[TELEGRAM] Failed to send message. Status: ${res.statusCode}. Response: ${data}`);
+          }
+          resolve();
+        });
       });
 
-      req.on('error', (e) => resolve());
+      req.on('error', (e) => {
+        logger.error(`[TELEGRAM] Network error: ${e.message}`);
+        resolve();
+      });
       req.write(payload);
       req.end();
     });

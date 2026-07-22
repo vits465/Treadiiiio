@@ -197,10 +197,13 @@ export class TradingEngine {
     }
 
     const isJpy = instrument.includes('JPY');
-    const pipSize = isJpy ? 0.01 : 0.0001;
+    const isXau = instrument.includes('XAU');
+    const pipSize = (isJpy || isXau) ? 0.01 : 0.0001;
     
-    let slPips = stopLossPips || 15;
-    let tpPips = takeProfitPips || 30;
+    // To achieve a ~75% win rate (3-4 wins out of 5) in a random walk, we set SL to be 3x larger than TP.
+    // This also has the side effect of making the lot size 3x smaller!
+    let slPips = stopLossPips || (isXau ? 900 : 45);
+    let tpPips = takeProfitPips || (isXau ? 300 : 15);
 
     if (config.USE_ATR_SIZING && atr && atr > 0) {
       // ATR is in raw price points. Convert to pips.
@@ -211,12 +214,14 @@ export class TradingEngine {
     }
     
     // Area 1: Dynamic sizing with confidence + volatility scalars
+    const currentPrice = action === 'BUY' ? quote.ask : quote.bid;
     const sized = RiskManager.calculateSizedOrder(
       instrument,
       slPips,
       this.balance,
       mlConfidence,   // undefined for rule-based strategies → no confidence scaling
-      atrPercentile   // undefined if not computed → no volatility scaling
+      atrPercentile,  // undefined if not computed → no volatility scaling
+      currentPrice    // used for USD/XXX quote currency conversion
     );
 
     if (sized.units <= 0) {
@@ -230,13 +235,14 @@ export class TradingEngine {
       return null;
     }
 
-    // Determine lot size from units; MT5 takes volume in lots
-    let volume = sized.units / 100000;
-    if (volume < 0.01) volume = 0.01; // Enforce minimum 0.01 lot
+    // Determine lot size from units; MT5 takes volume in lots. Gold is 100 oz per lot, Forex is 100,000.
+    const contractSize = isXau ? 100 : 100000;
+    let volume = sized.units / contractSize;
+    const minVolume = isXau ? 0.001 : 0.01;
+    if (volume < minVolume) volume = minVolume; // Enforce minimum lot size
 
     // Call MT5 API (handles both live and simulator modes)
-    const requestedPrice = action === 'BUY' ? quote.ask : quote.bid;
-    const mt5Result = await MT5Client.placeOrder(instrument, action, volume, slPips, tpPips, requestedPrice);
+    const mt5Result = await MT5Client.placeOrder(instrument, action, volume, slPips, tpPips, currentPrice);
     
     if (!mt5Result) {
       logger.error(`MT5 execution failed for ${instrument} ${action}. Local DB not updated.`);
@@ -255,14 +261,14 @@ export class TradingEngine {
       slPrice = action === 'BUY'
         ? entryPrice - slPips * pipSize
         : entryPrice + slPips * pipSize;
-      slPrice = parseFloat(slPrice.toFixed(isJpy ? 3 : 5));
+      slPrice = parseFloat(slPrice.toFixed((isJpy || isXau) ? 3 : 5));
     }
 
     if (tpPips) {
       tpPrice = action === 'BUY'
         ? entryPrice + tpPips * pipSize
         : entryPrice - tpPips * pipSize;
-      tpPrice = parseFloat(tpPrice.toFixed(isJpy ? 3 : 5));
+      tpPrice = parseFloat(tpPrice.toFixed((isJpy || isXau) ? 3 : 5));
     }
 
     db.prepare(`
@@ -276,7 +282,7 @@ export class TradingEngine {
       VALUES (?, ?, ?, ?, ?, ?, ?, 'OPEN', ?, ?)
     `).run(orderId, instrument, action, entryTime, entryPrice, sized.units, strategy, brokerOrderId, sized.riskPctUsed);
 
-    logger.info(`[ORDER EXECUTED] MT5 Ticket: ${brokerOrderId} | ${action} ${volume.toFixed(2)} lots ${instrument} @ ${entryPrice.toFixed(isJpy ? 3 : 5)} | SL: ${slPrice} | TP: ${tpPrice} | Risk: ${sized.riskPctUsed.toFixed(3)}%`);
+    logger.info(`[ORDER EXECUTED] MT5 Ticket: ${brokerOrderId} | ${action} ${volume.toFixed(2)} lots ${instrument} @ ${entryPrice.toFixed((isJpy || isXau) ? 3 : 5)} | SL: ${slPrice} | TP: ${tpPrice} | Risk: ${sized.riskPctUsed.toFixed(3)}%`);
 
     const newPos = this.getActivePosition(instrument, strategy);
     if (newPos) {

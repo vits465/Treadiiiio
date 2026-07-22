@@ -228,10 +228,12 @@ export class RiskManager {
     stopLossPips: number,
     currentBalance: number,
     confidence?: number,      // ML confidence (0–1); undefined = rule-based (no scaling)
-    atrPercentile?: number    // From computeAtrPercentile; undefined = no vol scaling
+    atrPercentile?: number,   // From computeAtrPercentile; undefined = no vol scaling
+    currentPrice?: number     // Needed to convert USD risk to quote currency for USD/XXX pairs
   ): SizedOrder {
     const isJpy = instrument.includes('JPY');
-    const pipSize = isJpy ? 0.01 : 0.0001;
+    const isXau = instrument.includes('XAU');
+    const pipSize = (isJpy || isXau) ? 0.01 : 0.0001;
 
     // Base risk — capped at RISK_MAX_POSITION_SIZE_PCT so even a misconfigured
     // RISK_BASE_PCT_PER_TRADE=5 cannot push risk past the safety ceiling.
@@ -260,10 +262,20 @@ export class RiskManager {
     const combinedScalar = Math.max(0.25, confScalar * volScalar);
     const effectiveRiskPct = Math.min(baseRiskPct * combinedScalar, config.RISK_MAX_POSITION_SIZE_PCT);
 
-    const amountToRisk = currentBalance * (effectiveRiskPct / 100);
+    let amountToRisk = currentBalance * (effectiveRiskPct / 100);
 
-    // Use tight 15-pip default SL if not specified
-    const slPips = stopLossPips || 15;
+    if (isXau) {
+      // Force risk between $1 and $10 for XAU/USD
+      amountToRisk = Math.max(1, Math.min(amountToRisk, 10));
+    }
+
+    // Convert USD risk amount to quote currency for USD-base pairs
+    if (instrument.startsWith('USD/') && currentPrice) {
+      amountToRisk = amountToRisk * currentPrice;
+    }
+
+    // Use wide 45-pip default SL if not specified (900 pips for Gold) to ensure small lot sizes and high win rate
+    const slPips = stopLossPips || (isXau ? 900 : 45);
     const slDistance = slPips * pipSize;
 
     // Raw units from risk formula
@@ -271,13 +283,23 @@ export class RiskManager {
 
     // Broker-step flooring: floor volume to 0.01-lot increments,
     // recompute exact units from floored volume.
-    let volume = rawUnits / 100000;
-    if (volume < 0.01) volume = 0; // will be caught by min-lot check below
-    else volume = Math.floor(volume * 100) / 100; // floor to 0.01 increments
-    const units = volume * 100000;
+    const contractSize = isXau ? 100 : 100000;
+    let volume = rawUnits / contractSize;
+    
+    if (isXau) {
+      // Force lot size between 0.01 and 0.05 for XAU/USD
+      volume = Math.max(0.01, Math.min(volume, 0.05));
+    }
+    
+    const minVolume = 0.01;
+    const volMultiplier = 100;
 
-    // Min-lot check (0.01 lot = 1,000 units)
-    const minLotUnits = 1000;
+    if (volume < minVolume) volume = 0; // will be caught by min-lot check below
+    else volume = Math.floor(volume * volMultiplier) / volMultiplier; // floor to minimum increments
+    const units = volume * contractSize;
+
+    // Min-lot check
+    const minLotUnits = isXau ? 1 : 1000; // 0.01 lot of 100oz = 1 unit for Gold
     const minLotRisk = minLotUnits * slDistance;
 
     if (units < minLotUnits || minLotRisk > amountToRisk) {

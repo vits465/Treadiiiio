@@ -28,7 +28,7 @@ export class MLClient {
    *   - prediction.atr is now forwarded on the returned Signal so the engine
    *     can use ATR-based SL/TP sizing for ML trades (previously silently dropped).
    */
-  public static async predict(instrument: string, candles: Candle[]): Promise<Signal | null> {
+  public static async predict(instrument: string, candles: Candle[], throwOn404 = false): Promise<Signal | null> {
     try {
       const payload = {
         instrument,
@@ -103,6 +103,7 @@ export class MLClient {
       };
     } catch (error: any) {
       if (error.response && error.response.status === 404) {
+        if (throwOn404) throw new Error('MODEL_NOT_FOUND');
         logger.warn(`No trained ML model found for ${instrument}. Skipping ML prediction.`);
         return null;
       }
@@ -122,7 +123,8 @@ export class MLClient {
         instrument,
         granularity: config.CANDLE_GRANULARITY,
         lookback_days: 365,
-        model_type: 'xgboost'
+        model_type: 'xgboost',
+        allow_synthetic: true
       };
 
       const response = await this.client.post('/train', payload);

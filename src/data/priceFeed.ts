@@ -21,13 +21,13 @@ export interface Quote {
   ask: number;
 }
 
-// Initial price definitions for the Simulator (Twelve Data slash notation)
 const BASE_PRICES: Record<string, number> = {
   'EUR/USD': 1.0850,
   'GBP/USD': 1.2700,
   'USD/JPY': 155.50,
   'AUD/USD': 0.6650,
   'USD/CHF': 0.9050,
+  'XAU/USD': 2400.00,
 };
 
 const SPREADS: Record<string, number> = {
@@ -36,6 +36,7 @@ const SPREADS: Record<string, number> = {
   'USD/JPY': 0.015,   // 1.5 pips
   'AUD/USD': 0.00018,
   'USD/CHF': 0.00018,
+  'XAU/USD': 0.30,    // 30 pips
 };
 
 const simPrices = { ...BASE_PRICES };
@@ -50,11 +51,12 @@ export class PriceFeed {
     const bid = basePrice - spread / 2;
     const ask = basePrice + spread / 2;
 
+    const isSpecial = formatted.includes('JPY') || formatted.includes('XAU');
     return {
       instrument: formatted,
       time: new Date().toISOString(),
-      bid: parseFloat(bid.toFixed(formatted.includes('JPY') ? 3 : 5)),
-      ask: parseFloat(ask.toFixed(formatted.includes('JPY') ? 3 : 5)),
+      bid: parseFloat(bid.toFixed(isSpecial ? 3 : 5)),
+      ask: parseFloat(ask.toFixed(isSpecial ? 3 : 5)),
     };
   }
 
@@ -129,11 +131,12 @@ export class PriceFeed {
         const bid = newMid - spread / 2;
         const ask = newMid + spread / 2;
 
+        const isSpecial = inst.includes('JPY') || inst.includes('XAU');
         return {
           instrument: inst,
           time: new Date().toISOString(),
-          bid: parseFloat(bid.toFixed(inst.includes('JPY') ? 3 : 5)),
-          ask: parseFloat(ask.toFixed(inst.includes('JPY') ? 3 : 5)),
+          bid: parseFloat(bid.toFixed(isSpecial ? 3 : 5)),
+          ask: parseFloat(ask.toFixed(isSpecial ? 3 : 5)),
         };
       });
     }
@@ -153,11 +156,12 @@ export class PriceFeed {
         if (response.data && response.data.price) {
           const basePrice = parseFloat(response.data.price);
           const spread = SPREADS[inst] || (inst.includes('JPY') ? 0.015 : 0.00015);
+          const isSpecial = inst.includes('JPY') || inst.includes('XAU');
           quotes.push({
             instrument: inst,
             time: new Date().toISOString(),
-            bid: parseFloat((basePrice - spread / 2).toFixed(inst.includes('JPY') ? 3 : 5)),
-            ask: parseFloat((basePrice + spread / 2).toFixed(inst.includes('JPY') ? 3 : 5))
+            bid: parseFloat((basePrice - spread / 2).toFixed(isSpecial ? 3 : 5)),
+            ask: parseFloat((basePrice + spread / 2).toFixed(isSpecial ? 3 : 5))
           });
         } else {
           logger.error(`Twelve Data price fetch failed for ${inst}: ${JSON.stringify(response.data)}`);
@@ -260,7 +264,7 @@ export class PriceFeed {
       const low = Math.min(open, close) - Math.random() * vol * 0.5;
       const volume = Math.floor(Math.random() * 500) + 50;
 
-      const digits = instrument.includes('JPY') ? 3 : 5;
+      const digits = instrument.includes('JPY') || instrument.includes('XAU') ? 3 : 5;
 
       candles.push({
         time: candleTime,
