@@ -43,6 +43,8 @@ const simPrices = { ...BASE_PRICES };
 
 export class PriceFeed {
   private static baseURL = 'https://api.twelvedata.com';
+  // 5-minute memory cache for candles to prevent rate limit limits (429)
+  private static candleCache: Record<string, { candles: Candle[], timestamp: number }> = {};
 
   public static getLatestQuote(instrument: string): Quote {
     const formatted = instrument.includes('/') ? instrument : instrument.replace('_', '/');
@@ -61,7 +63,7 @@ export class PriceFeed {
   }
 
   /**
-   * Fetches historical candles from Twelve Data or Simulator.
+   * Fetches historical candles from Twelve Data or Simulator with 5-minute caching.
    */
   public static async fetchCandles(
     instrument: string,
@@ -70,6 +72,16 @@ export class PriceFeed {
   ): Promise<Candle[]> {
     if (config.USE_SIMULATOR && !config.USE_REAL_PRICES) {
       return this.generateSimulatedCandles(instrument, count, granularity);
+    }
+
+    const cacheKey = `${instrument}_${granularity}_${count}`;
+    const cached = this.candleCache[cacheKey];
+    const now = Date.now();
+
+    // Cache hit: return cache if less than 5 minutes old
+    if (cached && now - cached.timestamp < 5 * 60 * 1000) {
+      logger.debug(`Twelve Data candle cache hit for ${instrument} (${granularity})`);
+      return cached.candles;
     }
 
     try {
@@ -104,19 +116,37 @@ export class PriceFeed {
       candles.reverse();
 
       this.saveCandlesToDb(candles);
+      
+      // Update cache
+      this.candleCache[cacheKey] = { candles, timestamp: now };
+      
       return candles;
     } catch (error: any) {
       logger.error(`Twelve Data candle fetch failed for ${instrument}: ${error.message}. Using cache or simulator...`);
-      const cached = this.getCachedCandles(instrument, count, granularity);
-      if (cached.length > 0) {
-        return cached;
+      
+      // If we have any cached data even older than 5 minutes, fallback to it
+      // IMPORTANT: Update the timestamp so we don't retry on every single tick!
+      if (cached) {
+        cached.timestamp = now; // reset the 5-minute cooldown
+        return cached.candles;
       }
-      return this.generateSimulatedCandles(instrument, count, granularity);
+      
+      const dbCached = this.getCachedCandles(instrument, count, granularity);
+      if (dbCached.length > 0) {
+        // Cache in memory for 5 minutes so we don't try to fetch from API again immediately!
+        this.candleCache[cacheKey] = { candles: dbCached, timestamp: now };
+        return dbCached;
+      }
+      
+      const simCandles = this.generateSimulatedCandles(instrument, count, granularity);
+      // Cooldown: cache simulated candles in memory for 1 minute before retrying API
+      this.candleCache[cacheKey] = { candles: simCandles, timestamp: now - 4 * 60 * 1000 };
+      return simCandles;
     }
   }
 
   /**
-   * Fetches latest bid/ask quotes for currency pairs via MT5 Client.
+   * Fetches latest bid/ask quotes for currency pairs via Twelve Data, batching requests.
    */
   public static async fetchLatestQuotes(instruments: string[]): Promise<Quote[]> {
     if (config.USE_SIMULATOR || !config.USE_REAL_PRICES) {
@@ -142,19 +172,27 @@ export class PriceFeed {
     }
 
     try {
-      logger.debug(`Fetching live quotes from Twelve Data for: ${instruments.join(',')}`);
+      logger.debug(`Fetching live batched quotes from Twelve Data for: ${instruments.join(',')}`);
       const quotes: Quote[] = [];
       
+      const response = await axios.get(`${this.baseURL}/price`, {
+        params: {
+          symbol: instruments.join(','),
+          apikey: config.TWELVE_DATA_API_KEY,
+        },
+      });
+
+      const data = response.data;
+      if (!data) {
+        throw new Error("Empty Twelve Data response");
+      }
+
       for (const inst of instruments) {
-        const response = await axios.get(`${this.baseURL}/price`, {
-          params: {
-            symbol: inst,
-            apikey: config.TWELVE_DATA_API_KEY,
-          },
-        });
+        // Twelve Data returns keyed object for multi-symbol request, or plain price object if single
+        const item = data[inst] ? data[inst] : (instruments.length === 1 ? data : null);
         
-        if (response.data && response.data.price) {
-          const basePrice = parseFloat(response.data.price);
+        if (item && item.price) {
+          const basePrice = parseFloat(item.price);
           const spread = SPREADS[inst] || (inst.includes('JPY') ? 0.015 : 0.00015);
           const isSpecial = inst.includes('JPY') || inst.includes('XAU');
           quotes.push({
@@ -164,7 +202,7 @@ export class PriceFeed {
             ask: parseFloat((basePrice + spread / 2).toFixed(isSpecial ? 3 : 5))
           });
         } else {
-          logger.error(`Twelve Data price fetch failed for ${inst}: ${JSON.stringify(response.data)}`);
+          logger.error(`Twelve Data price parsing failed for ${inst}: ${JSON.stringify(data)}`);
         }
       }
 
