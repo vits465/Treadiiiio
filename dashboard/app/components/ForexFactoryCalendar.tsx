@@ -38,9 +38,9 @@ export function ForexFactoryCalendar() {
       }
       throw new Error("Empty backend news");
     } catch {
-      // Direct CDN Fallback (works on Vercel even when backend tunnel is restarting)
+      // Serverless Proxy Fallback (bypasses browser CORS completely)
       try {
-        const res = await fetch("https://nfs.faireconomy.media/ff_calendar_thisweek.json");
+        const res = await fetch("/api/calendar");
         if (res.ok) {
           const directData = await res.json();
           if (Array.isArray(directData)) {
@@ -48,7 +48,7 @@ export function ForexFactoryCalendar() {
           }
         }
       } catch (err) {
-        console.error("Failed to fetch ForexFactory calendar:", err);
+        console.error("Failed to fetch ForexFactory calendar via proxy:", err);
       }
     } finally {
       setLoading(false);
