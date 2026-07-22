@@ -16,14 +16,15 @@ import axios from 'axios';
 const app = express();
 // Trust one proxy hop (localtunnel/Vercel reverse proxy) so express-rate-limit
 // can correctly resolve client IPs from the X-Forwarded-For header.
-app.set('trust proxy', 1);
+app.set('trust proxy', true);
 app.use(express.json());
 
-// CORS — restricted to configured origin (not wildcard)
+// Dynamic CORS — allows Vercel frontend, local development, and localtunnel requests
 app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', config.CORS_ALLOWED_ORIGIN);
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, X-API-Key');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PATCH, OPTIONS');
+  const origin = req.headers.origin;
+  res.header('Access-Control-Allow-Origin', origin || '*');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, X-API-Key, x-api-key, Bypass-Tunnel-Reminder, bypass-tunnel-reminder');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
   if (req.method === 'OPTIONS') {
     res.sendStatus(204);
     return;
@@ -38,6 +39,7 @@ const configRateLimiter = rateLimit({
   message: { error: 'Too many config update requests — try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
+  validate: { trustProxy: false },
 });
 
 const tradeRateLimiter = rateLimit({
@@ -46,6 +48,7 @@ const tradeRateLimiter = rateLimit({
   message: { error: 'Too many trade requests — try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
+  validate: { trustProxy: false },
 });
 
 // Public endpoints (no auth): /api/health

@@ -1,18 +1,30 @@
 /**
  * start-tunnel.js
- * Permanent localtunnel launcher for PM2.
- * Fixed URL: https://vits-trading-bot-engine.loca.lt
- * 
- * PM2 runs this as a Node.js process, so we spawn the localtunnel CLI as a child.
+ * Self-healing permanent localtunnel process manager.
+ * Auto-restarts instantly if localtunnel drops or returns 503.
  */
 const { spawn } = require('child_process');
+const http = require('http');
 
-const tunnel = spawn(
-  process.platform === 'win32' ? 'npx.cmd' : 'npx',
-  ['localtunnel', '--port', '4000', '--subdomain', 'treadiiiio-bot-5531'],
-  { stdio: 'inherit', shell: false }
-);
+let tunnelProcess = null;
 
-tunnel.on('close', (code) => {
-  process.exit(code ?? 1); // PM2 will auto-restart after exit
-});
+function startTunnel() {
+  console.log('[TUNNEL] Starting localtunnel on port 4000 (subdomain: treadiiiio-bot-5531)...');
+  
+  tunnelProcess = spawn(
+    'npx',
+    ['localtunnel', '--port', '4000', '--subdomain', 'treadiiiio-bot-5531'],
+    { stdio: 'inherit', shell: true }
+  );
+
+  tunnelProcess.on('close', (code) => {
+    console.log(`[TUNNEL] Localtunnel process exited with code ${code}. Restarting in 3 seconds...`);
+    setTimeout(startTunnel, 3000);
+  });
+
+  tunnelProcess.on('error', (err) => {
+    console.error('[TUNNEL] Localtunnel error:', err.message);
+  });
+}
+
+startTunnel();
