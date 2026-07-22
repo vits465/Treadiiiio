@@ -30,6 +30,23 @@ async function handleProxy(req: NextRequest, pathSegments: string[]) {
       });
     }
 
+    if (subpath === 'test-fetch') {
+      try {
+        const testRes = await fetch(`${BOT_API_URL}/api/config`, {
+          headers: {
+            "Content-Type": "application/json",
+            "x-api-key": API_KEY,
+            "bypass-tunnel-reminder": "true",
+          }
+        });
+        const status = testRes.status;
+        const text = await testRes.text();
+        return NextResponse.json({ success: true, status, text });
+      } catch (fetchErr: any) {
+        return NextResponse.json({ success: false, error: fetchErr.message, stack: fetchErr.stack });
+      }
+    }
+
     const targetUrl = `${BOT_API_URL}/api/${subpath}${req.nextUrl.search}`;
 
     const headers: Record<string, string> = {
