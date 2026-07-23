@@ -31,11 +31,6 @@ function startTunnel() {
     if (match) {
       activeUrl = match[1].trim();
       console.log(`\n[TUNNEL] Handshake completed. Active URL: ${activeUrl}`);
-      if (activeUrl !== 'https://treadiiiio-bot-8877.loca.lt') {
-        console.warn(`[TUNNEL WARNING] Target subdomain treadiiiio-bot-8877 busy. Retrying...`);
-        killTunnelAndRestart();
-        return;
-      }
       startHealthCheck();
     }
   });
