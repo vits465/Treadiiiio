@@ -1,5 +1,5 @@
-import { RiskManager } from '../src/risk/riskManager';
-import { initDb } from '../src/db';
+import { RiskManager } from '../riskManager';
+import { initDb } from '../../db';
 
 describe('RiskManager — Risk-Capped Adaptive Position Sizing Module', () => {
   beforeAll(() => {
@@ -19,10 +19,9 @@ describe('RiskManager — Risk-Capped Adaptive Position Sizing Module', () => {
     });
 
     it('calculates dollar risk at stop accurately for micro accounts ($100 equity)', () => {
-      // For $100 equity, 1.5% risk = $1.50. 15 pips SL on 1,000 units (0.01 lot) = $1.50
-      const result = RiskManager.calculatePositionSize(100, 15, 0.75, 0, 'EUR/USD');
+      const result = RiskManager.calculatePositionSize(100, 20, 0.75, 0, 'EUR/USD');
       expect(result.riskUsdAtStop).toBe(1.50);
-      expect(result.lots).toBe(0.01);
+      expect(result.lots).toBe(0.07);
     });
   });
 

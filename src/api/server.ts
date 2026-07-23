@@ -490,18 +490,28 @@ app.get('/api/risk-status', (req, res) => {
     // Area 4: Consecutive-loss cooldown status (read-only, no rejection log)
     const consecutiveLossStatus = RiskManager.getConsecutiveLossStatus();
 
+    const dashboardStatus = RiskManager.getDashboardStatus(currentEquity, unrealized);
+
     res.json({
+      dailyPnlPct: dashboardStatus.dailyPnlPct,
+      circuitBreakerStatus: dashboardStatus.circuitBreakerStatus,
+      currentOpenRiskPct: Math.round(currentTotalOpenRiskPct * 100) / 100,
+      lastSizingDecision: dashboardStatus.lastSizingDecision,
+      softTargetUsd: dashboardStatus.softTargetUsd,
+      softTargetMet: dashboardStatus.softTargetMet,
+
+      // Legacy & Prop Firm metrics
       dailyLossLimit: dailyLimit,
       dailyLossUsed,
       weeklyLossLimit: config.STARTING_BALANCE * (config.RISK_WEEKLY_LOSS_LIMIT_PCT / 100),
       weeklyLossUsed,
       maxPositionSizePct: config.RISK_MAX_POSITION_SIZE_PCT,
+      perTradeCapPct: config.RISK_PER_TRADE_CAP_PCT,
       effectiveRiskPct,
-      currentTotalOpenRiskPct,
       distanceToCircuitBreaker,
       circuitBreakerLevel,
       peakEquity,
-      enginePaused: TradingEngine.isPaused(),
+      enginePaused: TradingEngine.isPaused() || dashboardStatus.circuitBreakerStatus.breached,
       maxConcurrentPositions: config.RISK_MAX_CONCURRENT_POSITIONS,
       currentOpenPositions: openCount,
       startOfDayBalance,

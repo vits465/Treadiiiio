@@ -72,6 +72,16 @@ const envSchema = z.object({
   // Area 4: Circuit Breakers
   RISK_MAX_CONSECUTIVE_LOSSES: z.string().transform((val) => parseInt(val, 10)).default('5'),
   RISK_CONSECUTIVE_LOSS_COOLDOWN_HOURS: z.string().transform((val) => parseInt(val, 10)).default('4'),
+
+  // Risk-Capped Adaptive Position Sizing Module
+  RISK_PER_TRADE_CAP_PCT: z.string().transform((val) => parseFloat(val)).default('1.5'),
+  RISK_CONFIDENCE_MIN_THRESHOLD: z.string().transform((val) => parseFloat(val)).default('0.60'),
+  RISK_CONFIDENCE_TIER_NORMAL: z.string().transform((val) => parseFloat(val)).default('0.75'),
+  RISK_CONFIDENCE_TIER_STRETCH: z.string().transform((val) => parseFloat(val)).default('0.85'),
+  RISK_REDUCED_TIER_MULTIPLIER: z.string().transform((val) => parseFloat(val)).default('0.60'),
+  RISK_STRETCH_CAP_PCT: z.string().transform((val) => parseFloat(val)).default('2.25'),
+  RISK_CUMULATIVE_OPEN_RISK_CEILING_PCT: z.string().transform((val) => parseFloat(val)).default('6.0'),
+  RISK_DAILY_SOFT_TARGET_USD: z.string().transform((val) => parseFloat(val)).default('25.0'),
 });
 
 const parsed = envSchema.safeParse(process.env);
