@@ -219,19 +219,20 @@ export default function OverviewPage() {
       </motion.div>
 
       {/* Top Stat Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
         {stats.map((s, idx) => {
           const Icon = s.icon;
+          const isLongValue = s.value.length > 14;
           return (
             <div key={idx} className="relative group cursor-default">
-              <div className="glass-panel rounded-2xl p-5 border border-white/[0.05] relative overflow-hidden h-full">
-                <div className="flex items-center justify-between mb-4">
-                  <span className="text-[10px] font-bold text-slate-400 tracking-widest uppercase">{s.name}</span>
-                  <div className={`p-2 rounded-xl ${s.bg}`}>
+              <div className="glass-panel rounded-2xl p-4 border border-white/[0.05] relative overflow-hidden h-full flex flex-col justify-between">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-[10px] font-bold text-slate-400 tracking-wider uppercase truncate max-w-[80%]">{s.name}</span>
+                  <div className={`p-2 rounded-xl shrink-0 ${s.bg}`}>
                      <Icon className={`h-4 w-4 ${s.color}`} />
                   </div>
                 </div>
-                <p className={`text-2xl font-bold tracking-tight ${s.valueColor || 'text-white'}`}>{s.value}</p>
+                <p className={`font-bold tracking-tight ${isLongValue ? 'text-lg' : 'text-2xl'} ${s.valueColor || 'text-white'} truncate`}>{s.value}</p>
                 <div className={`absolute -bottom-6 -right-6 w-24 h-24 ${s.bg} rounded-full blur-2xl opacity-50`}></div>
               </div>
             </div>
