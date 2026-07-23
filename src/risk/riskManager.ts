@@ -271,7 +271,14 @@ export class RiskManager {
     // Lot size step rounding (0.01 lot increments)
     const minVolume = 0.01;
     if (volume < minVolume) {
-      volume = 0;
+      // Micro account optimization: if risk for 0.01 lot is under max per-trade risk cap, floor to 0.01 lot
+      const minLotRiskUsd = minVolume * contractSize * slDistance;
+      const maxCapUsd = accountEquity * ((config.RISK_PER_TRADE_CAP_PCT * 1.25) / 100);
+      if (minLotRiskUsd <= maxCapUsd) {
+        volume = minVolume;
+      } else {
+        volume = 0;
+      }
     } else {
       volume = Math.floor(volume * 100) / 100;
     }
