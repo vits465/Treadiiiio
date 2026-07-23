@@ -455,7 +455,11 @@ app.get('/api/risk-status', (req, res) => {
     `).get(`${todayStr}%`) as { realizedToday: number | null };
 
     const realizedToday = row?.realizedToday || 0;
+    
+    // PROP FIRM METRICS
+    const startOfDayBalance = balance - realizedToday;
     const dailyLossUsed = Math.max(0, -(realizedToday + unrealized));
+    const dailyLimit = startOfDayBalance * (config.RISK_DAILY_LOSS_LIMIT_PCT / 100);
 
     // Weekly drawdown
     const sevenDaysAgo = new Date();
@@ -501,6 +505,7 @@ app.get('/api/risk-status', (req, res) => {
       enginePaused: TradingEngine.isPaused(),
       maxConcurrentPositions: config.RISK_MAX_CONCURRENT_POSITIONS,
       currentOpenPositions: openCount,
+      startOfDayBalance,
       consecutiveLossCooldown: {
         inCooldown: consecutiveLossStatus.inCooldown,
         consecutiveLosses: consecutiveLossStatus.consecutiveLosses,

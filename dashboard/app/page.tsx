@@ -10,12 +10,14 @@ import {
   executeManualTrade,
   closeManualTrade,
   getBotStatus,
+  getRiskStatus,
   startBot,
   pauseBot,
   Summary, 
   Position, 
   EquitySnapshot,
-  LogRecord
+  LogRecord,
+  RiskStatus
 } from '../lib/api-client';
 import { 
   TrendingUp, 
@@ -68,22 +70,25 @@ export default function OverviewPage() {
   const [tradeLoading, setTradeLoading] = useState(false);
   const [enginePaused, setEnginePaused] = useState<boolean | null>(null);
   const [engineLoading, setEngineLoading] = useState(false);
+  const [riskStatus, setRiskStatus] = useState<RiskStatus | null>(null);
 
   // Trade Rationale Modal State
   const [selectedPosition, setSelectedPosition] = useState<Position | null>(null);
 
   const fetchAllData = async () => {
     try {
-      const [sumData, posData, eqData, botStatus] = await Promise.all([
+      const [sumData, posData, eqData, botStatus, riskData] = await Promise.all([
         getSummary(),
         getOpenPositions(),
         getEquityCurve(),
-        getBotStatus()
+        getBotStatus(),
+        getRiskStatus()
       ]);
       setSummary(sumData);
       setPositions(posData);
       setEquityHistory(eqData);
       setEnginePaused(botStatus.paused);
+      setRiskStatus(riskData);
     } catch (e) {
       console.error("Failed to fetch dashboard data:", e);
     } finally {
@@ -193,10 +198,10 @@ export default function OverviewPage() {
   const stats = [
     { name: 'Account Balance', value: `$${balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, icon: DollarSign, color: 'text-cyan-400', bg: 'bg-cyan-500/10' },
     { name: 'Net Equity', value: `$${equity.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, icon: Zap, color: 'text-indigo-400', bg: 'bg-indigo-500/10' },
+    { name: 'Prop Firm Start Balance', value: riskStatus && riskStatus.startOfDayBalance ? `$${riskStatus.startOfDayBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '---', icon: ShieldAlert, color: 'text-emerald-400', bg: 'bg-emerald-500/10' },
     { name: 'Realized PnL', value: `$${summary.totalPnl.toFixed(2)}`, valueColor: summary.totalPnl >= 0 ? 'text-emerald-400' : 'text-rose-400', icon: summary.totalPnl >= 0 ? TrendingUp : TrendingDown, color: summary.totalPnl >= 0 ? 'text-emerald-400' : 'text-rose-400', bg: summary.totalPnl >= 0 ? 'bg-emerald-500/10' : 'bg-rose-500/10' },
-    { name: 'Win Rate', value: `${(summary.winRate * 100).toFixed(1)}%`, icon: Percent, color: 'text-amber-400', bg: 'bg-amber-500/10' },
     { name: 'Max Drawdown', value: `${summary.maxDrawdown.toFixed(2)}%`, icon: ShieldAlert, color: 'text-rose-400', bg: 'bg-rose-500/10' },
-    { name: 'Sharpe Ratio', value: summary.sharpeApprox.toFixed(2), icon: Award, color: 'text-purple-400', bg: 'bg-purple-500/10' },
+    { name: 'Prop Firm Daily DD Used', value: riskStatus ? `$${riskStatus.dailyLossUsed.toFixed(2)} / $${riskStatus.dailyLossLimit.toFixed(2)}` : '---', valueColor: riskStatus && riskStatus.dailyLossUsed >= riskStatus.dailyLossLimit ? 'text-rose-400' : 'text-amber-400', icon: ShieldAlert, color: 'text-rose-400', bg: 'bg-rose-500/10' },
   ];
 
   return (

@@ -146,6 +146,7 @@ export interface RiskStatus {
   circuitBreakerLevel: number;
   maxConcurrentPositions: number;
   currentOpenPositions: number;
+  startOfDayBalance?: number;
 }
 
 export const getRiskStatus = () => apiFetch<RiskStatus>("/api/risk-status");
