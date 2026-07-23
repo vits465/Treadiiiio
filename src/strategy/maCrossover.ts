@@ -43,12 +43,12 @@ export class MaCrossoverStrategy implements Strategy {
     const stopLossPips = 20;
     const takeProfitPips = 40;
 
-    // Crossover Up -> BUY (Only if Daily Trend is UP)
+    // Crossover Up -> BUY (Unless Daily Trend is explicitly DOWN)
     if (fastPrev <= slowPrev && fastCurr > slowCurr) {
       if (context.activePosition?.action === 'SELL') {
         return { action: 'CLOSE', instrument, strategy: this.name };
       }
-      if (!context.activePosition && dailyTrend === 'UP') {
+      if (!context.activePosition && dailyTrend !== 'DOWN') {
         return { 
           action: 'BUY', 
           instrument, 
@@ -59,12 +59,12 @@ export class MaCrossoverStrategy implements Strategy {
       }
     }
 
-    // Crossover Down -> SELL (Only if Daily Trend is DOWN)
+    // Crossover Down -> SELL (Unless Daily Trend is explicitly UP)
     if (fastPrev >= slowPrev && fastCurr < slowCurr) {
       if (context.activePosition?.action === 'BUY') {
         return { action: 'CLOSE', instrument, strategy: this.name };
       }
-      if (!context.activePosition && dailyTrend === 'DOWN') {
+      if (!context.activePosition && dailyTrend !== 'UP') {
         return { 
           action: 'SELL', 
           instrument, 

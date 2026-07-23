@@ -73,12 +73,12 @@ export class RsiMeanReversionStrategy implements Strategy {
       }
     }
 
-    // RSI exits oversold (crosses above 30) -> BUY (Only if Daily Trend is UP)
+    // RSI exits oversold (crosses above 30) -> BUY (Unless Daily Trend is explicitly DOWN)
     if (rsiPrev <= this.oversold && rsiCurr > this.oversold) {
       if (context.activePosition?.action === 'SELL') {
         return { action: 'CLOSE', instrument, strategy: this.name };
       }
-      if (!context.activePosition && dailyTrend === 'UP') {
+      if (!context.activePosition && dailyTrend !== 'DOWN') {
         return { 
           action: 'BUY', 
           instrument, 
@@ -89,12 +89,12 @@ export class RsiMeanReversionStrategy implements Strategy {
       }
     }
 
-    // RSI exits overbought (crosses below 70) -> SELL (Only if Daily Trend is DOWN)
+    // RSI exits overbought (crosses below 70) -> SELL (Unless Daily Trend is explicitly UP)
     if (rsiPrev >= this.overbought && rsiCurr < this.overbought) {
       if (context.activePosition?.action === 'BUY') {
         return { action: 'CLOSE', instrument, strategy: this.name };
       }
-      if (!context.activePosition && dailyTrend === 'DOWN') {
+      if (!context.activePosition && dailyTrend !== 'UP') {
         return { 
           action: 'SELL', 
           instrument, 

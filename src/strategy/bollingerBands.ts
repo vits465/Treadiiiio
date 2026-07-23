@@ -58,12 +58,12 @@ export class BollingerBandsStrategy implements Strategy {
       }
     }
 
-    // BUY: Price crosses below lower band, or starts rising from below lower band (Only if Daily Trend is UP)
+    // BUY: Price crosses below lower band (Unless Daily Trend is explicitly DOWN)
     if (prevClose >= prevBands.lower && currClose < currBands.lower) {
       if (context.activePosition?.action === 'SELL') {
         return { action: 'CLOSE', instrument, strategy: this.name };
       }
-      if (!context.activePosition && dailyTrend === 'UP') {
+      if (!context.activePosition && dailyTrend !== 'DOWN') {
         return { 
           action: 'BUY', 
           instrument, 
@@ -74,12 +74,12 @@ export class BollingerBandsStrategy implements Strategy {
       }
     }
 
-    // SELL: Price crosses above upper band (Only if Daily Trend is DOWN)
+    // SELL: Price crosses above upper band (Unless Daily Trend is explicitly UP)
     if (prevClose <= prevBands.upper && currClose > currBands.upper) {
       if (context.activePosition?.action === 'BUY') {
         return { action: 'CLOSE', instrument, strategy: this.name };
       }
-      if (!context.activePosition && dailyTrend === 'DOWN') {
+      if (!context.activePosition && dailyTrend !== 'UP') {
         return { 
           action: 'SELL', 
           instrument, 
