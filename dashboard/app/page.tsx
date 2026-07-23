@@ -9,6 +9,9 @@ import {
   connectLiveFeed, 
   executeManualTrade,
   closeManualTrade,
+  getBotStatus,
+  startBot,
+  pauseBot,
   Summary, 
   Position, 
   EquitySnapshot,
@@ -25,7 +28,10 @@ import {
   Zap,
   Target,
   XCircle,
-  Info
+  Info,
+  Power,
+  Play,
+  Pause
 } from 'lucide-react';
 import { 
   ResponsiveContainer, 
@@ -60,20 +66,24 @@ export default function OverviewPage() {
   const [logs, setLogs] = useState<LogRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [tradeLoading, setTradeLoading] = useState(false);
+  const [enginePaused, setEnginePaused] = useState<boolean | null>(null);
+  const [engineLoading, setEngineLoading] = useState(false);
 
   // Trade Rationale Modal State
   const [selectedPosition, setSelectedPosition] = useState<Position | null>(null);
 
   const fetchAllData = async () => {
     try {
-      const [sumData, posData, eqData] = await Promise.all([
+      const [sumData, posData, eqData, botStatus] = await Promise.all([
         getSummary(),
         getOpenPositions(),
-        getEquityCurve()
+        getEquityCurve(),
+        getBotStatus()
       ]);
       setSummary(sumData);
       setPositions(posData);
       setEquityHistory(eqData);
+      setEnginePaused(botStatus.paused);
     } catch (e) {
       console.error("Failed to fetch dashboard data:", e);
     } finally {
@@ -102,6 +112,23 @@ export default function OverviewPage() {
       await fetchAllData();
     } catch (e) {
       console.error("Close failed", e);
+    }
+  };
+
+  const toggleEngine = async () => {
+    setEngineLoading(true);
+    try {
+      if (enginePaused) {
+        await startBot();
+        setEnginePaused(false);
+      } else {
+        await pauseBot();
+        setEnginePaused(true);
+      }
+    } catch (e) {
+      console.error("Toggle engine failed", e);
+    } finally {
+      setEngineLoading(false);
     }
   };
 
@@ -278,6 +305,30 @@ export default function OverviewPage() {
               >
                 <TrendingDown className="h-3.5 w-3.5" />
                 <span>Force Sell</span>
+              </button>
+            </div>
+            
+            <div className="mt-4 pt-4 border-t border-white/[0.05]">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-xs font-bold text-white uppercase tracking-wider font-mono flex items-center gap-1.5">
+                  <Power className="h-4 w-4 text-cyan-400" />
+                  Engine Control
+                </h3>
+                <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider ${enginePaused ? 'bg-rose-500/10 text-rose-400' : 'bg-emerald-500/10 text-emerald-400'}`}>
+                  {enginePaused === null ? '...' : (enginePaused ? 'PAUSED' : 'RUNNING')}
+                </span>
+              </div>
+              <button
+                disabled={engineLoading || enginePaused === null}
+                onClick={toggleEngine}
+                className={`w-full font-bold tracking-wider uppercase text-xs py-2.5 rounded-xl transition-all flex items-center justify-center space-x-1 font-mono disabled:opacity-50 ${
+                  enginePaused 
+                    ? 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                    : 'bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                }`}
+              >
+                {enginePaused ? <Play className="h-3.5 w-3.5" /> : <Pause className="h-3.5 w-3.5" />}
+                <span>{enginePaused ? 'Start Engine' : 'Pause Engine'}</span>
               </button>
             </div>
           </div>
