@@ -54,6 +54,7 @@ async function handleProxy(req: NextRequest, pathSegments: string[]) {
       "x-api-key": API_KEY,
       "Bypass-Tunnel-Reminder": "true",
       "bypass-tunnel-reminder": "true",
+      "ngrok-skip-browser-warning": "true",
     };
 
     const fetchInit: RequestInit = {

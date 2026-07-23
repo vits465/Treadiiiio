@@ -43,11 +43,20 @@ export class TradingEngine {
     const realizedPnL = row?.totalPnL || 0;
     this.balance = config.STARTING_BALANCE + realizedPnL;
 
-    // Restore peak equity from DB snapshots
+    // Restore peak equity from DB snapshots (reset if historical peak belongs to a prior account size)
     const peakRow = db.prepare(`
       SELECT MAX(equity) as peak FROM equity_snapshots
     `).get() as { peak: number | null };
-    this.peakEquity = Math.max(config.STARTING_BALANCE, peakRow?.peak || config.STARTING_BALANCE, this.balance);
+    
+    const dbPeak = peakRow?.peak || 0;
+    if (dbPeak > this.balance * 3) {
+      logger.warn(`Historical DB peak ($${dbPeak.toFixed(2)}) exceeds current balance ($${this.balance.toFixed(2)}). Resetting peak equity to current balance.`);
+      this.peakEquity = Math.max(config.STARTING_BALANCE, this.balance);
+    } else {
+      this.peakEquity = Math.max(config.STARTING_BALANCE, dbPeak, this.balance);
+    }
+
+    this.paused = false; // Reset pause state on clean startup
 
     logger.info(
       `Trading Engine Initialized. Realized PnL: $${realizedPnL.toFixed(2)}. ` +
