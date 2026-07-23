@@ -43,8 +43,8 @@ const envSchema = z.object({
   NEWS_BLACKOUT_MINUTES_AFTER: z.string().transform((val) => parseInt(val, 10)).default('30'),
   NEWS_RESTRICT_IMPACT: z.string().transform((val) => val.split(',').map(i => i.trim().toUpperCase())).default('HIGH'),
   RISK_DAILY_PROFIT_LOCK_PCT: z.string().transform((val) => parseFloat(val)).default('3.0'),
-  RISK_DAILY_PROFIT_TARGET_USD: z.string().transform((val) => parseFloat(val)).default('30.0'),
-  RISK_TRADE_TAKE_PROFIT_USD: z.string().transform((val) => parseFloat(val)).default('10.0'),
+  RISK_DAILY_PROFIT_TARGET_USD: z.string().transform((val) => parseFloat(val)).default('50.0'),
+  RISK_TRADE_TAKE_PROFIT_USD: z.string().transform((val) => parseFloat(val)).default('40.0'),
   TRADE_DIRECTION: z.enum(['BUY_ONLY', 'SELL_ONLY', 'BOTH']).default('BOTH'),
   HOLIDAY_GUARD_ENABLED: z.string().transform((val) => val.toLowerCase() === 'true').default('true'),
 

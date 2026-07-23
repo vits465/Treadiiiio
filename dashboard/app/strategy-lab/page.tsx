@@ -30,6 +30,7 @@ export default function StrategyLabPage() {
 
   useEffect(() => {
     fetchStrategiesList();
+    const interval = setInterval(fetchStrategiesList, 2000);
 
     // Re-fetch totals when a trade completes
     const disconnect = connectLiveFeed((event) => {
@@ -39,6 +40,7 @@ export default function StrategyLabPage() {
     });
 
     return () => {
+      clearInterval(interval);
       disconnect();
     };
   }, []);

@@ -33,12 +33,14 @@ export default function RiskPage() {
 
   useEffect(() => {
     fetchRiskMetrics();
+    const interval = setInterval(fetchRiskMetrics, 2000);
     const disconnect = connectLiveFeed((event) => {
       if (event.type === 'position_update' || event.type === 'trade_closed' || event.type === 'equity_tick') {
         fetchRiskMetrics();
       }
     });
     return () => {
+      clearInterval(interval);
       disconnect();
     };
   }, []);

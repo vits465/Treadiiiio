@@ -7,12 +7,13 @@ module.exports = {
       watch: false,
       env: {
         NODE_ENV: "production",
+        USE_SIMULATOR: "true",
       },
     },
     {
       name: "ml-service",
-      script: "venv/Scripts/uvicorn.exe",
-      args: "api.main:app --host 0.0.0.0 --port 8000",
+      script: "venv/Scripts/python.exe",
+      args: "main.py",
       cwd: "./ml-service",
       watch: false,
       env: {

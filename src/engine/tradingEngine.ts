@@ -180,7 +180,7 @@ export class TradingEngine {
     const openPositions = this.getOpenPositions();
     const currentUnrealized = openPositions.reduce((acc, pos) => acc + pos.unrealizedPnL, 0);
     
-    if (!RiskManager.checkDailyProfitLock(this.balance, currentUnrealized, instrument)) {
+    if (!RiskManager.checkDailyProfitLock(this.balance, currentUnrealized, instrument, mlConfidence, strategy)) {
       return null;
     }
 

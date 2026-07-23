@@ -131,15 +131,17 @@ export class RiskManager {
   public static checkDailyProfitLock(
     balance: number,
     currentUnrealized: number,
-    instrument: string
+    instrument: string,
+    confidence?: number,
+    strategy?: string
   ): boolean {
     const today = new Date().toISOString().split('T')[0];
     
     const row = db.prepare(`
-      SELECT SUM(pnl) as realizedToday
+      SELECT SUM(pnl) as realizedToday, COUNT(*) as totalClosed
       FROM trades
       WHERE status = 'CLOSED' AND exit_time LIKE ?
-    `).get(`${today}%`) as { realizedToday: number | null };
+    `).get(`${today}%`) as { realizedToday: number | null; totalClosed: number };
 
     const realizedToday = row?.realizedToday || 0;
     const totalTodayPnL = realizedToday + currentUnrealized;
@@ -155,22 +157,23 @@ export class RiskManager {
         ? `$${targetAmountPct.toFixed(2)} (${config.RISK_DAILY_PROFIT_LOCK_PCT}%)` 
         : `$${targetAmountUsd.toFixed(2)}`;
 
-      const { TradingEngine } = require('../engine/tradingEngine');
+      // High-Conviction Bonus Trade Exception: Allow max 2 bonus trades if ML Confidence >= 80% or SMC Liquidity setup
+      const isHighConviction = (strategy === 'ml_signal' && (confidence ?? 0) >= 0.80) || strategy === 'smc_liquidity';
       
-      if (!TradingEngine.isPaused()) {
-        logger.info(`Risk Management: Daily profit target reached (PnL: $${totalTodayPnL.toFixed(2)}, Target: ${targetStr}). Auto-pausing and flattening.`);
-        
-        TradingEngine.killAndFlatten('DAILY PROFIT TARGET HIT').then((closedCount: number) => {
-          TelegramNotifier.sendMessage(
-            `🎉 *DAILY PROFIT TARGET HIT*\n` +
-            `Today's PnL: $${totalTodayPnL.toFixed(2)}\n` +
-            `Target: ${targetStr}\n` +
-            `Closed ${closedCount} active position(s).\n` +
-            `Bot has gone OFFLINE automatically to lock in profits. Resume from dashboard.`
-          );
-        }).catch((err: any) => {
-          logger.error(`Error flattening positions on profit target hit: ${err.message}`);
-        });
+      const bonusRow = db.prepare(`
+        SELECT COUNT(*) as bonusCount
+        FROM trades
+        WHERE status = 'CLOSED' AND exit_time LIKE ? AND (strategy = 'smc_liquidity' OR (strategy = 'ml_signal' AND pnl != 0))
+      `).get(`${today}%`) as { bonusCount: number };
+
+      const bonusTradesToday = bonusRow?.bonusCount || 0;
+
+      if (isHighConviction && bonusTradesToday < 2 && instrument !== 'GLOBAL') {
+        logger.info(
+          `[BONUS TRADE PERMITTED] Today's profit target (${targetStr}) reached, but executing high-conviction setup ` +
+          `#${bonusTradesToday + 1}/2 (${strategy}, confidence: ${((confidence || 0) * 100).toFixed(1)}%).`
+        );
+        return true;
       }
 
       RejectionLogger.log(
@@ -178,8 +181,8 @@ export class RiskManager {
         'DAILY_PROFIT_LOCK',
         instrument,
         undefined,
-        undefined,
-        `Today PnL: $${totalTodayPnL.toFixed(2)}, Target: ${targetStr}`
+        strategy,
+        `Today PnL: $${totalTodayPnL.toFixed(2)}, Target: ${targetStr}. Profit locked for today.`
       );
       
       return false;

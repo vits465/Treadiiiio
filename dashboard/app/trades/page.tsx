@@ -37,6 +37,7 @@ export default function TradesPage() {
 
   useEffect(() => {
     fetchTradeHistory();
+    const interval = setInterval(fetchTradeHistory, 2000);
 
     const disconnect = connectLiveFeed((event) => {
       if (event.type === 'trade_closed') {
@@ -45,6 +46,7 @@ export default function TradesPage() {
     });
 
     return () => {
+      clearInterval(interval);
       disconnect();
     };
   }, []);

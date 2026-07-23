@@ -3,7 +3,7 @@
  * Continuous auto-healing supervisor for Treadiiiio Forex Trading Bot.
  * Monitors Engine (4000), ML Service (8000), Dashboard (3000), and Tunnel.
  * Auto-restarts any process if it crashes, exits, or fails health checks.
- * Stops automatically at 7:00 PM local time.
+ * Runs 24/7 continuously by default (or auto-stops at 7 PM if AUTO_STOP_AT_7PM=true).
  */
 
 const { spawn } = require('child_process');
@@ -13,6 +13,7 @@ const path = require('path');
 const ROOT_DIR = __dirname;
 const ML_DIR = path.join(__dirname, 'ml-service');
 
+const AUTO_STOP_ENABLED = process.env.AUTO_STOP_AT_7PM === 'true';
 const TARGET_HOUR = 19; // 7 PM
 const TARGET_MINUTE = 0;
 
@@ -128,7 +129,7 @@ function startSupervisor() {
       if (isStopping) return;
 
       const now = new Date();
-      if (now.getHours() >= TARGET_HOUR && now.getMinutes() >= TARGET_MINUTE) {
+      if (AUTO_STOP_ENABLED && now.getHours() >= TARGET_HOUR && now.getMinutes() >= TARGET_MINUTE) {
         log("⏰ 7:00 PM reached! Triggering graceful shutdown of all trading services...");
         stopAll();
         return;
@@ -189,7 +190,7 @@ function stopAll() {
 log("==================================================");
 log("   Treadiiiio Watchdog Supervisor Started          ");
 log("   Monitors: Engine, ML, Dashboard, Tunnel         ");
-log("   Auto-restart on error | Target Stop: 7:00 PM    ");
+log(`   Mode: ${AUTO_STOP_ENABLED ? 'Auto-stop at 7:00 PM' : 'Continuous 24/7 Execution'} `);
 log("==================================================");
 
 startMLService();

@@ -2,7 +2,8 @@ import https from 'https';
 import { logger } from '../logger';
 import { TradingEngine } from '../engine/tradingEngine';
 import { PriceFeed } from '../data/priceFeed';
-
+import { db } from '../db';
+import { config } from '../config';
 export class TelegramNotifier {
   private static botToken: string | undefined;
   private static chatId: string | undefined;
@@ -74,7 +75,7 @@ export class TelegramNotifier {
       logger.info(`[TELEGRAM] Processing command: ${text}`);
       
       if (text === '/start' || text === '/help') {
-        await this.sendMessage('🤖 Antigravity Command Center\n\nAvailable Commands:\n/status - Check engine status\n/list - View all active trades\n/pause - Stop taking new trades\n/resume - Resume taking trades\n/kill - EMERGENCY: Pause + close ALL positions\n\n⚠ /kill requires confirmation within 30s');
+        await this.sendMessage("🤖 Antigravity Command Center\n\nAvailable Commands:\n/status - Check engine status\n/today - View today's PnL\n/history - View last 5 closed trades\n/config - View bot configuration\n/list - View all active trades\n/pause - Stop taking new trades\n/resume - Resume taking trades\n/kill - EMERGENCY: Pause + close ALL positions\n\n⚠ /kill requires confirmation within 30s");
       }
       
       else if (text === '/status') {
@@ -111,6 +112,47 @@ export class TelegramNotifier {
           await this.sendMessage(msg);
         } catch (err: any) {
           await this.sendMessage('⚠ Error fetching positions: ' + err.message);
+        }
+      }
+      
+      else if (text === '/today') {
+        try {
+          const today = new Date().toISOString().split('T')[0];
+          const result = db.prepare('SELECT SUM(pnl) as totalPnL, COUNT(*) as tradesCount FROM trades WHERE exit_time LIKE ?').get(today + '%') as any;
+          const pnl = result?.totalPnL || 0;
+          const count = result?.tradesCount || 0;
+          
+          await this.sendMessage(`📅 *Today's Performance*\n\nTrades: ${count}\nRealized PnL: $${pnl.toFixed(2)}`);
+        } catch (err: any) {
+          await this.sendMessage('⚠ Error fetching today data: ' + err.message);
+        }
+      }
+      
+      else if (text === '/history') {
+        try {
+          const trades = db.prepare("SELECT instrument, action, pnl, strategy, exit_time FROM trades WHERE status = 'CLOSED' ORDER BY exit_time DESC LIMIT 5").all() as any[];
+          if (!trades || trades.length === 0) {
+            await this.sendMessage('📜 *Trade History*\n\nNo closed trades yet.');
+            return;
+          }
+          
+          let msg = '📜 *Recent Closed Trades*\n\n';
+          for (const t of trades) {
+            const emoji = t.pnl >= 0 ? '🟢' : '🔴';
+            msg += `${emoji} ${t.action} ${t.instrument}\nPnL: $${t.pnl.toFixed(2)}\nStrategy: ${t.strategy}\nClosed: ${new Date(t.exit_time).toLocaleTimeString()}\n\n`;
+          }
+          await this.sendMessage(msg);
+        } catch (err: any) {
+          await this.sendMessage('⚠ Error fetching history: ' + err.message);
+        }
+      }
+      
+      else if (text === '/config') {
+        try {
+          const msg = `⚙️ *System Configuration*\n\nTarget Profit: $${config.RISK_DAILY_PROFIT_TARGET_USD}\nTake Profit: $${config.RISK_TRADE_TAKE_PROFIT_USD}\nMax Drawdown: ${config.RISK_MAX_DRAWDOWN_PCT}%\nSlippage Alert: ${config.ALERT_SLIPPAGE_PIPS} pips\nSimulator Mode: ${config.USE_SIMULATOR}\n\nStrategies:\n${config.ENABLED_STRATEGIES.join(', ')}`;
+          await this.sendMessage(msg);
+        } catch (err: any) {
+          await this.sendMessage('⚠ Error fetching config: ' + err.message);
         }
       }
       

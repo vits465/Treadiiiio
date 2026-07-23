@@ -107,6 +107,7 @@ export default function OverviewPage() {
 
   useEffect(() => {
     fetchAllData();
+    const pollInterval = setInterval(fetchAllData, 2000);
     const disconnect = connectLiveFeed((event) => {
       if (event.type === 'equity_tick') {
         const tick = event.data;
@@ -152,6 +153,7 @@ export default function OverviewPage() {
     });
 
     return () => {
+      clearInterval(pollInterval);
       disconnect();
     };
   }, []);

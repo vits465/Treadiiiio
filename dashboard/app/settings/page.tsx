@@ -19,7 +19,7 @@ export default function SettingsPage() {
     CURRENCY_PAIRS: 'EUR_USD',
     TELEGRAM_BOT_TOKEN: '',
     TELEGRAM_CHAT_ID: '',
-    RISK_DAILY_PROFIT_TARGET_USD: 30.0
+    RISK_DAILY_PROFIT_TARGET_USD: 50.0
   });
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
@@ -43,8 +43,8 @@ export default function SettingsPage() {
 
   useEffect(() => {
     fetchStatus();
-    // Poll every 5 seconds to keep uptime accurate and check if restarted
-    const interval = setInterval(fetchStatus, 5000);
+    // Poll every 2 seconds to keep uptime accurate and status live
+    const interval = setInterval(fetchStatus, 2000);
     return () => clearInterval(interval);
   }, []);
 

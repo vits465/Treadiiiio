@@ -17,13 +17,18 @@ export function BotConsoleLogs({ logs: externalLogs }: BotConsoleLogsProps) {
   const [isPaused, setIsPaused] = useState<boolean>(false);
   const logContainerRef = useRef<HTMLDivElement>(null);
 
-  // Initial fetch of logs
+  // Polling fetch of logs every 2s
   useEffect(() => {
-    getLogs()
-      .then((data) => {
-        if (Array.isArray(data)) setLogs(data);
-      })
-      .catch(() => {});
+    const fetchLogs = () => {
+      getLogs()
+        .then((data) => {
+          if (Array.isArray(data)) setLogs(data);
+        })
+        .catch(() => {});
+    };
+    fetchLogs();
+    const interval = setInterval(fetchLogs, 2000);
+    return () => clearInterval(interval);
   }, []);
 
   // Update when external logs change
