@@ -103,6 +103,25 @@ async function bootstrap() {
 
   async function executionLoop() {
     try {
+      // PROP FIRM MODE: Weekend Guard (Friday 20:00 UTC auto-liquidation)
+      const now = new Date();
+      if (now.getUTCDay() === 5 && now.getUTCHours() >= 20) {
+        if (!TradingEngine.isPaused()) {
+          logger.warn('Weekend Guard activated: Pausing engine and liquidating all positions.');
+          TradingEngine.setPaused(true);
+          const posList = TradingEngine.getOpenPositions();
+          if (posList.length > 0) {
+            const quotes = await PriceFeed.fetchLatestQuotes(config.CURRENCY_PAIRS);
+            for (const pos of posList) {
+              const qt = quotes.find(q => q.instrument === pos.instrument) || PriceFeed.getLatestQuote(pos.instrument);
+              if (qt) await TradingEngine.closePosition(pos.id, qt, 'WEEKEND_AUTO_CLOSE');
+            }
+            TelegramNotifier.sendMessage(`🛑 *WEEKEND GUARD ACTIVATED*\n${posList.length} position(s) closed and trading paused until Sunday open.`);
+          }
+        }
+        return; // Halt execution loop early during weekend closed hours
+      }
+
       logger.debug('Polling market price quotes...');
       const quotes = await PriceFeed.fetchLatestQuotes(config.CURRENCY_PAIRS);
 
@@ -136,7 +155,28 @@ async function bootstrap() {
 
         const latestCandle = candles[candles.length - 1];
 
-        // Process Rule-Based Strategies (Only if NOT PAUSED)
+        // MTF FILTER: Calculate Macro Trend (Simple 20-period SMA slope or Price vs SMA)
+        let macroTrend: 'UP' | 'DOWN' | 'NEUTRAL' = 'NEUTRAL';
+        if (macroCandles.length >= 20) {
+          const closePrices = macroCandles.slice(-20).map(c => c.close);
+          const sma20 = closePrices.reduce((a, b) => a + b, 0) / 20;
+          macroTrend = latestCandle.close > sma20 ? 'UP' : 'DOWN';
+        }
+
+        // VOLATILITY (ATR) Calculation
+        let currentAtr = 0;
+        if (candles.length >= 15) {
+          const trs = [];
+          for (let i = candles.length - 14; i < candles.length; i++) {
+            const high = candles[i].high;
+            const low = candles[i].low;
+            const prevClose = candles[i - 1].close;
+            const tr = Math.max(high - low, Math.abs(high - prevClose), Math.abs(low - prevClose));
+            trs.push(tr);
+          }
+          currentAtr = trs.reduce((a, b) => a + b, 0) / 14;
+        }
+
         if (!TradingEngine.isPaused()) {
           for (const strategy of enabledStrategies) {
             const activePosition = TradingEngine.getActivePosition(pair, strategy.name);
@@ -163,9 +203,16 @@ async function bootstrap() {
               if (signal.action === 'CLOSE' && activePosition) {
                 await TradingEngine.closePosition(activePosition.id, quote, `Strategy signal CLOSE (${strategy.name})`);
               } else if ((signal.action === 'BUY' || signal.action === 'SELL') && !activePosition) {
+                // MTF Trend Alignment Filter
+                if ((signal.action === 'BUY' && macroTrend === 'DOWN') || (signal.action === 'SELL' && macroTrend === 'UP')) {
+                  logger.info(`[MTF FILTER] Rejected ${pair} ${signal.action} from ${strategy.name} — counter to Daily ${macroTrend} trend.`);
+                  continue; // Skip execution
+                }
+
                 await TradingEngine.executeOrder(
                   pair, signal.action, strategy.name, quote,
-                  signal.stopLossPips, signal.takeProfitPips, signal.amountToRecover
+                  signal.stopLossPips, signal.takeProfitPips, signal.amountToRecover,
+                  currentAtr // pass ATR for dynamic lot sizing
                 );
               }
             }
@@ -212,6 +259,12 @@ async function bootstrap() {
               }
 
               if (gatePass) {
+                // MTF Trend Alignment Filter for ML
+                if ((signal.action === 'BUY' && macroTrend === 'DOWN') || (signal.action === 'SELL' && macroTrend === 'UP')) {
+                  logger.info(`[MTF FILTER] Rejected ${pair} ML ${signal.action} — counter to Daily ${macroTrend} trend.`);
+                  continue; // Skip execution
+                }
+
                 // Area 1: pass confidence for dynamic sizing
                 // Area 2 bug fix: pass signal.atr into executeOrder so ATR-based SL/TP activates
                 await TradingEngine.executeOrder(

@@ -56,10 +56,15 @@ export class RiskManager {
 
     const realizedToday = row?.realizedToday || 0;
     const totalTodayPnL = realizedToday + currentUnrealized;
-    const limitAmount = config.STARTING_BALANCE * (config.RISK_DAILY_LOSS_LIMIT_PCT / 100);
+    
+    // PROP FIRM MODE: Calculate strict Start of Day Balance
+    const startOfDayBalance = currentBalance - realizedToday;
+    const limitAmount = startOfDayBalance * (config.RISK_DAILY_LOSS_LIMIT_PCT / 100);
+    const limitEquity = startOfDayBalance - limitAmount;
+    const currentEquity = currentBalance + currentUnrealized;
 
-    if (totalTodayPnL <= -limitAmount) {
-      logger.warn(`Risk Management: Daily loss limit breached (PnL: $${totalTodayPnL.toFixed(2)}, Limit: -$${limitAmount.toFixed(2)}). Halted trading for today.`);
+    if (currentEquity <= limitEquity) {
+      logger.warn(`Risk Management: Daily loss limit breached (Equity: $${currentEquity.toFixed(2)}, Limit Equity: $${limitEquity.toFixed(2)}). Halted trading for today.`);
       
       RejectionLogger.log(
         'RiskManager.checkDailyLossLimit',
