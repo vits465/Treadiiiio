@@ -19,7 +19,7 @@ function startTunnel() {
   
   tunnelProcess = spawn(
     'npx',
-    ['localtunnel', '--port', '4000', '--subdomain', 'treadiiiio-bot-8877'],
+    ['localtunnel', '--port', '4000', '--local-host', '127.0.0.1', '--subdomain', 'treadiiiio-bot-8877'],
     { shell: true }
   );
 
@@ -32,7 +32,9 @@ function startTunnel() {
       activeUrl = match[1].trim();
       console.log(`\n[TUNNEL] Handshake completed. Active URL: ${activeUrl}`);
       if (activeUrl !== 'https://treadiiiio-bot-8877.loca.lt') {
-        console.warn(`[TUNNEL WARNING] Could not bind to target subdomain. Using fallback: ${activeUrl}`);
+        console.warn(`[TUNNEL WARNING] Target subdomain treadiiiio-bot-8877 busy. Retrying...`);
+        killTunnelAndRestart();
+        return;
       }
       startHealthCheck();
     }
