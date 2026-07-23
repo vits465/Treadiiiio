@@ -74,24 +74,38 @@ async function bootstrap() {
     }
   }
 
-  // 3. Pre-train ML models if they don't exist
+  // 3. Pre-warm ML models in the BACKGROUND (non-blocking so engine starts immediately)
   if (config.ENABLED_STRATEGIES.includes('ml_signal')) {
-    logger.info('Checking ML Service connectivity and models...');
-    for (const pair of config.CURRENCY_PAIRS) {
-      try {
-        const testCandles = await PriceFeed.fetchCandles(pair, 50, config.CANDLE_GRANULARITY);
-        await MLClient.predict(pair, testCandles, true);
-        logger.info(`ML model for ${pair} is loaded and ready.`);
-      } catch (err: any) {
-        if (err.message === 'MODEL_NOT_FOUND') {
-          logger.warn(`No model found for ${pair} in ML service. Auto-triggering initial training...`);
-          const trainCandles = await PriceFeed.fetchCandles(pair, 500, config.CANDLE_GRANULARITY);
-          await MLClient.train(pair, trainCandles);
-        } else {
-          logger.error(`Failed to verify or pre-train ML model for ${pair}. Make sure the Python service is running at ${config.ML_SERVICE_URL}. Error: ${err.message}`);
+    logger.info('Checking ML Service connectivity (background warm-up)...');
+    // Run async background warm-up — doesn't block engine startup
+    (async () => {
+      for (const pair of config.CURRENCY_PAIRS) {
+        try {
+          // short timeout for candle fetch at startup — fall back to simulator if slow
+          const testCandles = await Promise.race([
+            PriceFeed.fetchCandles(pair, 50, config.CANDLE_GRANULARITY),
+            new Promise<never>((_, reject) => setTimeout(() => reject(new Error('TIMEOUT')), 8000))
+          ]) as any;
+          await MLClient.predict(pair, testCandles, true);
+          logger.info(`ML model for ${pair} is loaded and ready.`);
+        } catch (err: any) {
+          if (err.message === 'MODEL_NOT_FOUND') {
+            logger.warn(`No model for ${pair} — triggering background training...`);
+            try {
+              const trainCandles = await PriceFeed.fetchCandles(pair, 500, config.CANDLE_GRANULARITY);
+              await MLClient.train(pair, trainCandles);
+            } catch (trainErr: any) {
+              logger.error(`ML training failed for ${pair}: ${trainErr.message}`);
+            }
+          } else if (err.message === 'TIMEOUT') {
+            logger.warn(`ML warm-up timeout for ${pair} — will retry on next tick.`);
+          } else {
+            logger.warn(`ML warm-up skipped for ${pair}: ${err.message}`);
+          }
         }
       }
-    }
+      logger.info('ML warm-up complete. Engine fully operational.');
+    })().catch((e) => logger.warn(`ML warm-up failed: ${e.message}`));
   }
 
   // 4. Start the Express API server

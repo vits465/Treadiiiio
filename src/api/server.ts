@@ -444,7 +444,6 @@ app.get('/api/risk-status', (req, res) => {
     const openPositions = TradingEngine.getOpenPositions();
     const unrealized = openPositions.reduce((acc, pos) => acc + pos.unrealizedPnL, 0);
     const balance = TradingEngine.getBalance();
-    const dailyLimit = config.STARTING_BALANCE * (config.RISK_DAILY_LOSS_LIMIT_PCT / 100);
 
     // Sum today's realized losses
     const todayStr = new Date().toISOString().substring(0, 10);
@@ -801,7 +800,24 @@ export function startApiServer() {
   });
 
   const port = config.PORT;
-  server.listen(port, () => {
-    logger.info(`🚀 Unified REST & WebSocket server running at http://localhost:${port}`);
-  });
+
+  const tryListen = (attempt = 1) => {
+    server.listen(port, () => {
+      logger.info(`🚀 Unified REST & WebSocket server running at http://localhost:${port}`);
+    });
+
+    server.once('error', (err: any) => {
+      if (err.code === 'EADDRINUSE' && attempt < 5) {
+        logger.warn(`Port ${port} in use (attempt ${attempt}/5). Retrying in 3s...`);
+        server.close();
+        setTimeout(() => tryListen(attempt + 1), 3000);
+      } else {
+        logger.error(`Failed to bind port ${port} after ${attempt} attempts: ${err.message}`);
+        process.exit(1);
+      }
+    });
+  };
+
+  tryListen();
 }
+

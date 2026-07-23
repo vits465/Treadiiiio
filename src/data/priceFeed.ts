@@ -63,7 +63,7 @@ function toMassiveTicker(instrument: string): string {
 }
 
 export class PriceFeed {
-  private static massiveBaseURL = 'https://api.massive.com';
+  private static massiveBaseURL = 'https://api.polygon.io';
   private static avBaseURL = 'https://www.alphavantage.co/query';
   private static tdBaseURL = 'https://api.twelvedata.com';
   // 15-minute memory cache for candles to eliminate API rate limits
@@ -73,14 +73,23 @@ export class PriceFeed {
   // Rate limiter delay helper for Massive.com (5 req/min free limit = 12s per req)
   private static lastMassiveCallTime = 0;
 
+  private static massiveQueuePromise: Promise<void> = Promise.resolve();
+
   private static async throttleMassiveCall(): Promise<void> {
-    const now = Date.now();
-    const elapsed = now - this.lastMassiveCallTime;
-    const minDelay = 2500; // 2.5 seconds delay between API calls (respects 5 req/min burst limit)
-    if (elapsed < minDelay) {
-      await new Promise((resolve) => setTimeout(resolve, minDelay - elapsed));
-    }
-    this.lastMassiveCallTime = Date.now();
+    const minDelay = 2500; // 2.5 seconds delay between API calls
+    
+    // Chain promises to ensure sequential execution even for parallel calls
+    const nextCall = this.massiveQueuePromise.then(async () => {
+      const now = Date.now();
+      const elapsed = now - this.lastMassiveCallTime;
+      if (elapsed < minDelay) {
+        await new Promise((resolve) => setTimeout(resolve, minDelay - elapsed));
+      }
+      this.lastMassiveCallTime = Date.now();
+    });
+    
+    this.massiveQueuePromise = nextCall;
+    return nextCall;
   }
 
   public static getLatestQuote(instrument: string): Quote {
