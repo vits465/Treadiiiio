@@ -8,9 +8,9 @@ const API_KEY = (process.env.NEXT_PUBLIC_API_KEY || "a3f7c9d2e1b4f6a8c0d5e7f9b2a
 
 // Fallback tunnels in case primary tunnel returns 503 or drops connection
 const FALLBACK_TUNNEL_URLS = [
-  BOT_API_URL,
   "https://2dbd0045144a97bb-150-107-241-89.serveousercontent.com",
   "https://deluge-footsie-dander.ngrok-free.dev",
+  BOT_API_URL,
 ];
 
 export async function GET(req: NextRequest, { params }: { params: { path: string[] } }) {
@@ -61,13 +61,11 @@ async function handleProxy(req: NextRequest, pathSegments: string[]) {
         method: req.method,
         headers,
         body: bodyText,
-        // 5s timeout per candidate
         signal: AbortSignal.timeout(5000),
       };
 
       const res = await fetch(targetUrl, fetchInit);
 
-      // If tunnel returns 503 or 502, failover to next candidate URL
       if (res.status === 503 || res.status === 502) {
         lastError = new Error(`Tunnel ${baseUrl} returned HTTP ${res.status}`);
         continue;
@@ -79,6 +77,11 @@ async function handleProxy(req: NextRequest, pathSegments: string[]) {
         return NextResponse.json(json, { status: res.status });
       } else {
         const text = await res.text();
+        // Catch localtunnel 200 OK pseudo-errors
+        if (text.includes("Tunnel Unavailable") || text.includes("Forbidden") || text.includes("tunnel error")) {
+          lastError = new Error(`Tunnel ${baseUrl} returned pseudo-error: ${text}`);
+          continue;
+        }
         return new NextResponse(text, { status: res.status, headers: { "content-type": contentType } });
       }
     } catch (err: any) {
