@@ -73,34 +73,40 @@ export class RsiMeanReversionStrategy implements Strategy {
       }
     }
 
-    // RSI exits oversold (crosses above 30) -> BUY (Unless Daily Trend is explicitly DOWN)
+    // RSI exits oversold -> BUY (Mean Reversion)
     if (rsiPrev <= this.oversold && rsiCurr > this.oversold) {
       if (context.activePosition?.action === 'SELL') {
         return { action: 'CLOSE', instrument, strategy: this.name };
       }
-      if (!context.activePosition && dailyTrend !== 'DOWN') {
+      if (!context.activePosition) {
+        const isDeepOversold = rsiPrev <= 25;
+        const confidence = isDeepOversold ? 0.82 : 0.65;
         return { 
           action: 'BUY', 
           instrument, 
           strategy: this.name, 
-          stopLossPips: 15, 
-          takeProfitPips: 30 
+          confidence,
+          stopLossPips: 20, 
+          takeProfitPips: 35 
         };
       }
     }
 
-    // RSI exits overbought (crosses below 70) -> SELL (Unless Daily Trend is explicitly UP)
+    // RSI exits overbought -> SELL (Market Reversal / Reversion)
     if (rsiPrev >= this.overbought && rsiCurr < this.overbought) {
       if (context.activePosition?.action === 'BUY') {
         return { action: 'CLOSE', instrument, strategy: this.name };
       }
-      if (!context.activePosition && dailyTrend !== 'UP') {
+      if (!context.activePosition) {
+        const isDeepOverbought = rsiPrev >= 75;
+        const confidence = isDeepOverbought ? 0.82 : 0.65;
         return { 
           action: 'SELL', 
           instrument, 
           strategy: this.name, 
-          stopLossPips: 15, 
-          takeProfitPips: 30 
+          confidence,
+          stopLossPips: 20, 
+          takeProfitPips: 35 
         };
       }
     }

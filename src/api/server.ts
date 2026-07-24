@@ -582,7 +582,14 @@ app.post('/api/bot/pause', (req, res) => {
 
 app.post('/api/bot/start', (req, res) => {
   TradingEngine.setPaused(false);
-  res.json({ paused: false });
+  RiskManager.resetDailyCircuitBreaker();
+  res.json({ paused: false, message: 'Bot started and daily target/circuit breaker reset' });
+});
+
+app.post('/api/bot/reset-target', (req, res) => {
+  RiskManager.resetDailyCircuitBreaker();
+  logger.info('Daily target & circuit breaker reset via API.');
+  res.json({ success: true, message: 'Daily target and circuit breaker reset successfully' });
 });
 
 // Kill Switch — pause AND flatten all open positions

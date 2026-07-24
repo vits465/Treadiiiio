@@ -3,13 +3,14 @@
 @tailwind utilities;
 
 :root {
-  --background: #090d16;
+  --background: #060913;
   --foreground: #f8fafc;
   --border: #1e293b;
   --accent: #06b6d4; /* Neon cyan */
+  --accent-secondary: #8b5cf6; /* Electric purple */
   --accent-rgb: 6, 182, 212;
   --success: #10b981; /* Green */
-  --error: #ef4444; /* Red */
+  --error: #f43f5e; /* Rose */
 }
 
 body {
@@ -61,8 +62,19 @@ body {
 }
 
 .neon-border-red {
-  border-color: rgba(239, 68, 68, 0.2);
-  box-shadow: 0 0 15px rgba(239, 68, 68, 0.05);
+  border-color: rgba(244, 63, 94, 0.2);
+  box-shadow: 0 0 15px rgba(244, 63, 94, 0.05);
+}
+
+.neon-border-purple {
+  border-color: rgba(139, 92, 246, 0.25);
+  box-shadow: 0 0 20px rgba(139, 92, 246, 0.1);
+}
+
+.premium-gradient-text {
+  background: linear-gradient(to right, #06b6d4, #8b5cf6);
+  -webkit-background-clip: text;
+  color: transparent;
 }
 
 /* Micro-animations */

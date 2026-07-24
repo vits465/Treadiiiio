@@ -76,7 +76,7 @@ class TrainRequest(BaseModel):
     instrument: str = Field(..., examples=["EUR_USD"])
     granularity: str = Field("1h", description="Twelve Data interval, e.g. 5min, 1h, 1day")
     lookback_days: int = Field(365, ge=30, le=2000)
-    model_type: Literal["xgboost", "lightgbm"] = "xgboost"
+    model_type: Literal["xgboost", "lightgbm", "lstm"] = "lstm"
     allow_synthetic: bool = Field(False, description="If true, allows training on synthetic data when real data is insufficient")
 
 class TrainResponse(BaseModel):

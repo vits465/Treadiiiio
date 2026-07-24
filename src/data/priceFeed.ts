@@ -92,8 +92,65 @@ export class PriceFeed {
     return nextCall;
   }
 
+  /**
+   * Fetches real-time live XAU/USD (Gold) quote from GoldAPI.io.
+   * Caches quotes for 5 seconds to manage API rate limits.
+   */
+  public static async fetchGoldApiQuote(): Promise<Quote | null> {
+    const apiKey = config.GOLD_API_KEY || process.env.GOLD_API_KEY || 'goldapi-2f4eaacb05107f8dfa70348fb883283a-io';
+    if (!apiKey) return null;
+
+    const cacheKey = 'XAU/USD_GOLDAPI';
+    const cached = this.quoteCache[cacheKey];
+    const now = Date.now();
+
+    if (cached && now - cached.timestamp < 5000) {
+      return cached.quote;
+    }
+
+    try {
+      const response = await axios.get('https://www.goldapi.io/api/XAU/USD', {
+        headers: { 'x-access-token': apiKey },
+        timeout: 5000,
+      });
+
+      if (response.data && response.data.price) {
+        const data = response.data;
+        const bid = parseFloat(data.bid || data.price);
+        const ask = parseFloat(data.ask || (data.price + 0.30));
+        const mid = (bid + ask) / 2;
+
+        simPrices['XAU/USD'] = mid;
+        BASE_PRICES['XAU/USD'] = mid;
+
+        const quote: Quote = {
+          instrument: 'XAU/USD',
+          time: new Date(data.timestamp ? data.timestamp * 1000 : Date.now()).toISOString(),
+          bid: parseFloat(bid.toFixed(3)),
+          ask: parseFloat(ask.toFixed(3)),
+        };
+
+        this.quoteCache[cacheKey] = { quote, timestamp: now };
+        logger.info(`[GoldAPI.io] Live XAU/USD quote fetched: Bid ${quote.bid} / Ask ${quote.ask} (Mid: $${mid.toFixed(2)})`);
+        return quote;
+      }
+    } catch (err: any) {
+      logger.warn(`GoldAPI.io live quote fetch failed: ${err.message}.`);
+    }
+
+    return null;
+  }
+
   public static getLatestQuote(instrument: string): Quote {
     const formatted = instrument.includes('/') ? instrument : instrument.replace('_', '/');
+
+    if (formatted === 'XAU/USD') {
+      const cachedGold = this.quoteCache['XAU/USD_GOLDAPI'];
+      if (cachedGold && Date.now() - cachedGold.timestamp < 10000) {
+        return cachedGold.quote;
+      }
+    }
+
     const basePrice = simPrices[formatted] || simPrices['EUR/USD'] || 1.0850;
     const spread = SPREADS[formatted] || (formatted.includes('JPY') ? 0.015 : 0.00015);
     const bid = basePrice - spread / 2;
@@ -275,55 +332,36 @@ export class PriceFeed {
 
   /**
    * Fetches latest bid/ask quotes.
-   * Primary: Alpha Vantage CURRENCY_EXCHANGE_RATE (one call per instrument, cached 30s)
-   * Fallback: Twelve Data batched price, then simulator.
+   * Primary: Redis cache (populated by WebSocketManager).
    */
   public static async fetchLatestQuotes(instruments: string[]): Promise<Quote[]> {
     const quotes: Quote[] = [];
+    // Ensure redis is imported at the top of priceFeed.ts
+    const { redis } = await import('../db/redis');
 
     for (const inst of instruments) {
-      if (!config.USE_SIMULATOR) {
-        try {
-          const { MT5Client } = await import('../broker/mt5Client');
-          const mt5Quote = await MT5Client.getQuote(inst);
-          if (mt5Quote && mt5Quote.bid && mt5Quote.ask) {
-            quotes.push({
-              instrument: inst,
-              time: new Date(mt5Quote.time ? mt5Quote.time * 1000 : Date.now()).toISOString(),
-              bid: mt5Quote.bid,
-              ask: mt5Quote.ask,
-            });
-            continue;
-          }
-        } catch (err: any) {
-          logger.warn(`Could not fetch live MT5 quote for ${inst}: ${err.message}. Falling back to feed.`);
-        }
+      const normInst = inst.replace('_', '/');
+
+      // 1. Try to get from Redis (ultra-fast)
+      const cachedQuote = await redis.getCache<Quote>(`quote:${normInst}`);
+      if (cachedQuote) {
+        quotes.push(cachedQuote);
+        continue;
       }
 
-      // Fallback or Simulator: Get latest price from cached candles or base price
-      const cacheKey = `${inst}_1h_50`;
-      const cached = this.candleCache[cacheKey];
-      let basePrice = simPrices[inst] || BASE_PRICES[inst] || (inst.includes('JPY') ? 155.50 : 1.0850);
+      // 2. Fallback if Redis is empty (e.g. WebSocket just disconnected)
+      // We will pull the latest close price from the local db candle cache
+      const fallbackDb = this.getCachedCandles(normInst, 1, '1min');
+      let basePrice = fallbackDb.length > 0 ? fallbackDb[0].close : (simPrices[normInst] || BASE_PRICES[normInst] || 1.0850);
       
-      if (cached && cached.candles && cached.candles.length > 0) {
-        const lastCandle = cached.candles[cached.candles.length - 1];
-        basePrice = lastCandle.close;
-      }
-
-      // Add tiny tick micro-volatility (0.005%)
-      const vol = basePrice * 0.00005;
-      const change = (Math.random() - 0.5) * vol;
-      const newMid = basePrice + change;
-      simPrices[inst] = newMid;
-
-      const spread = SPREADS[inst] || (inst.includes('JPY') ? 0.015 : 0.00015);
-      const isSpecial = inst.includes('JPY') || inst.includes('XAU');
+      const spread = SPREADS[normInst] || (normInst.includes('JPY') ? 0.015 : 0.00015);
+      const isSpecial = normInst.includes('JPY') || normInst.includes('XAU');
       
       quotes.push({
-        instrument: inst,
+        instrument: normInst,
         time: new Date().toISOString(),
-        bid: parseFloat((newMid - spread / 2).toFixed(isSpecial ? 3 : 5)),
-        ask: parseFloat((newMid + spread / 2).toFixed(isSpecial ? 3 : 5)),
+        bid: parseFloat((basePrice - spread / 2).toFixed(isSpecial ? 3 : 5)),
+        ask: parseFloat((basePrice + spread / 2).toFixed(isSpecial ? 3 : 5)),
       });
     }
 

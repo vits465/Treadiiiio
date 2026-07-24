@@ -1,5 +1,6 @@
 import os
 from models.xgboost_model import XGBoostModelManager
+from models.lstm_model import LSTMModelManager
 from database import get_db_connection
 from datetime import datetime
 import json
@@ -21,7 +22,7 @@ class TrainResult:
         self.top_features = top_features or {}
 
 class ModelWrapper:
-    def __init__(self, manager: XGBoostModelManager):
+    def __init__(self, manager):
         self.manager = manager
         self.model_id = manager.model_id
         self.min_lookback = 30
@@ -39,7 +40,19 @@ class ModelWrapper:
         from models.xgboost_model import FEATURES
         X = features_row[FEATURES]
         
-        probs = self.manager.model.predict_proba(X)[0]
+        if self.model_id.startswith("lstm"):
+            import torch
+            # Requires a sequence, but here we only have one row. We'll duplicate it to make a sequence of length 10
+            # Note: For production LSTM, the API should pass the last 10 rows. This is a shim for single-row inference.
+            X_scaled = self.manager.scaler.transform(X)
+            seq = np.tile(X_scaled, (self.manager.sequence_length, 1))
+            X_seq = torch.Tensor(seq).unsqueeze(0).to(self.manager.device)
+            self.manager.model.eval()
+            with torch.no_grad():
+                probs = self.manager.model(X_seq).cpu().numpy()[0]
+        else:
+            probs = self.manager.model.predict_proba(X)[0]
+            
         import numpy as np
         pred_class = int(np.argmax(probs))
         confidence = float(probs[pred_class])
@@ -70,9 +83,12 @@ class ModelWrapper:
 
 def train_model(features_df, model_type: str, instrument: str) -> TrainResult:
     """
-    Trains the XGBoost model on the features DataFrame.
+    Trains the specified model on the features DataFrame.
     """
-    manager = XGBoostModelManager(instrument)
+    if model_type == "lstm":
+        manager = LSTMModelManager(instrument)
+    else:
+        manager = XGBoostModelManager(instrument)
     
     # We need candles list to train the model manager, or we can train directly in pandas.
     # In xgboost_model.py, we have `train(candles_data)`.
@@ -122,7 +138,11 @@ def load_latest_model(instrument: str) -> ModelWrapper | None:
     if not model_id:
         return None
         
-    manager = XGBoostModelManager(instrument, model_id)
+    if model_id.startswith("lstm"):
+        manager = LSTMModelManager(instrument, model_id)
+    else:
+        manager = XGBoostModelManager(instrument, model_id)
+        
     loaded = manager.load_model()
     if loaded:
         return ModelWrapper(manager)

@@ -58,34 +58,40 @@ export class BollingerBandsStrategy implements Strategy {
       }
     }
 
-    // BUY: Price crosses below lower band (Unless Daily Trend is explicitly DOWN)
+    // BUY: Price crosses below lower band -> BUY
     if (prevClose >= prevBands.lower && currClose < currBands.lower) {
       if (context.activePosition?.action === 'SELL') {
         return { action: 'CLOSE', instrument, strategy: this.name };
       }
-      if (!context.activePosition && dailyTrend !== 'DOWN') {
+      if (!context.activePosition) {
+        const breachAmount = (currBands.lower - currClose) / (currBands.middle - currBands.lower);
+        const confidence = breachAmount > 0.3 ? 0.82 : 0.65;
         return { 
           action: 'BUY', 
           instrument, 
           strategy: this.name, 
-          stopLossPips: 15, 
-          takeProfitPips: 30 
+          confidence,
+          stopLossPips: 20, 
+          takeProfitPips: 35 
         };
       }
     }
 
-    // SELL: Price crosses above upper band (Unless Daily Trend is explicitly UP)
+    // SELL: Price crosses above upper band -> SELL (Market Reversal)
     if (prevClose <= prevBands.upper && currClose > currBands.upper) {
       if (context.activePosition?.action === 'BUY') {
         return { action: 'CLOSE', instrument, strategy: this.name };
       }
-      if (!context.activePosition && dailyTrend !== 'UP') {
+      if (!context.activePosition) {
+        const breachAmount = (currClose - currBands.upper) / (currBands.upper - currBands.middle);
+        const confidence = breachAmount > 0.3 ? 0.82 : 0.65;
         return { 
           action: 'SELL', 
           instrument, 
           strategy: this.name, 
-          stopLossPips: 15, 
-          takeProfitPips: 30 
+          confidence,
+          stopLossPips: 20, 
+          takeProfitPips: 35 
         };
       }
     }

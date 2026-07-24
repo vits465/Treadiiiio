@@ -11,6 +11,7 @@ export interface NewsEvent {
   forecast: string;
   previous: string;
   timestamp: number; // Parsed UTC timestamp
+  sentiment?: number; // FinBERT sentiment score (-1 to 1)
 }
 
 export class NewsFilter {
@@ -58,6 +59,16 @@ export class NewsFilter {
             logger.debug(`Error parsing date: ${e.date} ${e.time}`);
           }
 
+          // FinBERT Sentiment Simulation (since we don't have a live NLP node in TS)
+          // In production, this would call `ml-service/sentiment` API
+          let sentiment = 0.0;
+          const lowerTitle = e.title ? e.title.toLowerCase() : '';
+          if (lowerTitle.includes('cut') || lowerTitle.includes('lower') || lowerTitle.includes('miss')) {
+            sentiment = -0.6;
+          } else if (lowerTitle.includes('hike') || lowerTitle.includes('beat') || lowerTitle.includes('higher')) {
+            sentiment = 0.6;
+          }
+          
           return {
             title: e.title,
             country: e.country,
@@ -66,7 +77,8 @@ export class NewsFilter {
             impact: e.impact,
             forecast: e.forecast,
             previous: e.previous,
-            timestamp
+            timestamp,
+            sentiment
           };
         });
 

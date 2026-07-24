@@ -32,32 +32,36 @@ export class SmartMoneyConceptsStrategy implements Strategy {
     // 2. Detect Bearish Fair Value Gap (c1.low > c3.high with strong displacement in c2)
     const isBearishFVG = c1.low > c3.high && c2.close < c2.open && (c2.high - c2.low) > (c1.high - c1.low) * 1.5;
 
-    // BUY Signal: Bullish FVG retest + Daily Trend UP
-    if (isBullishFVG && dailyTrend === 'UP') {
+    // BUY Signal: Bullish FVG retest
+    if (isBullishFVG) {
       if (context.activePosition?.action === 'SELL') {
         return { action: 'CLOSE', instrument, strategy: this.name };
       }
       if (!context.activePosition) {
+        const confidence = dailyTrend === 'UP' ? 0.85 : 0.70;
         return {
           action: 'BUY',
           instrument,
           strategy: this.name,
+          confidence,
           stopLossPips: 20,
           takeProfitPips: 50,
         };
       }
     }
 
-    // SELL Signal: Bearish FVG retest + Daily Trend DOWN
-    if (isBearishFVG && dailyTrend === 'DOWN') {
+    // SELL Signal: Bearish FVG retest (Market Reversal)
+    if (isBearishFVG) {
       if (context.activePosition?.action === 'BUY') {
         return { action: 'CLOSE', instrument, strategy: this.name };
       }
       if (!context.activePosition) {
+        const confidence = dailyTrend === 'DOWN' ? 0.85 : 0.70;
         return {
           action: 'SELL',
           instrument,
           strategy: this.name,
+          confidence,
           stopLossPips: 20,
           takeProfitPips: 50,
         };

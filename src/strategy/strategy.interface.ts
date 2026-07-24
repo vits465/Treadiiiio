@@ -42,6 +42,7 @@ export interface MarketContext {
   activePosition: PositionInfo | null;
   accountEquity: number;
   openPositionsCount: number;
+  currentRegime?: string; // CALM, NORMAL, VOLATILE
 }
 
 export interface Strategy {

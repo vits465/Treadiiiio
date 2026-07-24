@@ -4,6 +4,7 @@ import { logger } from './logger/index';
 import { initDb } from './db/index';
 import { TradingEngine, engineEvents } from './engine/tradingEngine';
 import { PriceFeed } from './data/priceFeed';
+import { WebSocketManager } from './data/wsClient';
 import { startApiServer, broadcastEvent } from './api/server';
 import { TelegramNotifier } from './notifier/telegram';
 import { Strategy, MarketContext } from './strategy/strategy.interface';
@@ -16,6 +17,8 @@ import { AsianKillZoneStrategy } from './strategy/asianKillZone';
 import { MLClient } from './ml-client/index';
 import { RejectionLogger } from './risk/rejectionLogger';
 import { checkRuleConfirmations } from './risk/confirmations';
+import { RegimeDetector } from './analytics/regimeDetector';
+import { StrategyAllocator } from './risk/strategyAllocator';
 
 async function bootstrap() {
   logger.info('==================================================');
@@ -25,6 +28,7 @@ async function bootstrap() {
   // 1. Initialize SQLite database & trading engine
   initDb();
   TradingEngine.initialize();
+  WebSocketManager.start();
 
   // Initialize Notifier
   TelegramNotifier.initialize(config.TELEGRAM_BOT_TOKEN, config.TELEGRAM_CHAT_ID);
@@ -204,6 +208,15 @@ async function bootstrap() {
               strategyCandles = await PriceFeed.fetchCandles(pair, 300, '5m');
             }
 
+            const regimeInputs = {
+              atr20Day: currentAtr,
+              atrThresholdNormal: pair.includes('JPY') ? 0.15 : 0.0010,
+              atrThresholdVolatile: pair.includes('JPY') ? 0.30 : 0.0025,
+              rollingWinRate20Day: 0.55, // Placeholder, would come from DB
+              rollingSharpe20Day: 1.0,
+            };
+            const currentRegime = RegimeDetector.detectRegime(regimeInputs).regime;
+
             const context: MarketContext = {
               historicalCandles: strategyCandles,
               macroCandles,
@@ -211,6 +224,7 @@ async function bootstrap() {
               activePosition,
               accountEquity,
               openPositionsCount,
+              currentRegime,
             };
 
             const evalCandle = strategyCandles[strategyCandles.length - 1] || latestCandle;
@@ -234,11 +248,12 @@ async function bootstrap() {
                   pair, signal.action, strategy.name, quote,
                   signal.stopLossPips, signal.takeProfitPips, signal.amountToRecover,
                   currentAtr, // pass ATR for dynamic lot sizing
-                  undefined,
+                  signal.confidence, // pass signal confidence for dynamic 0.01-0.05 lot sizing
                   undefined,
                   signal.requestedLots,
                   signal.tp1Pips,
-                  signal.tp2Pips
+                  signal.tp2Pips,
+                  StrategyAllocator.getStrategyRiskMultiplier(strategy.name, currentRegime)
                 );
               }
             }
@@ -302,7 +317,11 @@ async function bootstrap() {
                   undefined,            // amountToRecover — not applicable to ML signals
                   signal.atr,           // ← bug fix: was undefined before
                   signal.confidence,    // ← dynamic confidence scaling
-                  undefined             // atrPercentile — computed in riskManager if needed
+                  undefined,            // atrPercentile — computed in riskManager if needed
+                  undefined,
+                  undefined,
+                  undefined,
+                  StrategyAllocator.getStrategyRiskMultiplier('ml_signal', currentRegime)
                 );
               }
             }

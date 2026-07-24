@@ -34,6 +34,7 @@ const envSchema = z.object({
   STRATEGY_MONTHLY_LOSS_LIMIT_PCT: z.string().transform((val) => parseFloat(val)).default('-8.0'),
   TELEGRAM_BOT_TOKEN: z.string().optional(),
   TELEGRAM_CHAT_ID: z.string().optional(),
+  GOLD_API_KEY: z.string().optional(),
   API_SECRET_KEY: z.string().min(16, 'API_SECRET_KEY must be at least 16 characters'),
   CORS_ALLOWED_ORIGIN: z.string().default('http://localhost:3000'),
   
@@ -105,18 +106,7 @@ if (!parsed.success) {
   process.exit(1);
 }
 
-// Area 6: Small Account Handling — force conservative mode for <$200 accounts
-// A warning is insufficient; running aggressive on a $150 account blows it up.
-if (parsed.data.STARTING_BALANCE < 200 && parsed.data.RISK_MODE !== 'conservative') {
-  console.error(
-    `❌ SAFETY OVERRIDE: STARTING_BALANCE is $${parsed.data.STARTING_BALANCE} (< $200). ` +
-    `Running with RISK_MODE='${parsed.data.RISK_MODE}' on a micro-account risks rapid ruin. ` +
-    `RISK_MODE has been FORCED to 'conservative'. ` +
-    `Set STARTING_BALANCE >= $200 or explicitly set RISK_MODE=conservative to suppress this message.`
-  );
-  // Mutate the parsed data to enforce the safety override
-  parsed.data.RISK_MODE = 'conservative';
-}
+// Area 6: Micro-Account Override Removed to allow aggressive risk per user request.
 
 export const config = {
   ...parsed.data,

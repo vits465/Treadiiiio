@@ -209,8 +209,8 @@ export default function OverviewPage() {
       {/* Header */}
       <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col md:flex-row md:items-center justify-between space-y-2 md:space-y-0">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight text-white">Command Center</h2>
-          <p className="text-slate-400 text-sm font-medium mt-1">Real-time metrics, live positions, and dynamic equity tracing.</p>
+          <h2 className="text-4xl font-extrabold tracking-tight premium-gradient-text drop-shadow-md">Command Center</h2>
+          <p className="text-slate-400 text-sm font-medium mt-1">Institutional-grade monitoring, live AI predictions, and active equity tracking.</p>
         </div>
         <div className="flex items-center space-x-2 text-xs font-bold text-cyan-400 bg-cyan-950/30 border border-cyan-500/20 px-4 py-2 rounded-xl backdrop-blur-md font-mono">
           <Clock className="h-4 w-4" />
@@ -219,13 +219,24 @@ export default function OverviewPage() {
       </motion.div>
 
       {/* Top Stat Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+      <motion.div 
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ staggerChildren: 0.1 }}
+        className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4"
+      >
         {stats.map((s, idx) => {
           const Icon = s.icon;
           const isLongValue = s.value.length > 14;
           return (
-            <div key={idx} className="relative group cursor-default">
-              <div className="glass-panel rounded-2xl p-4 border border-white/[0.05] relative overflow-hidden h-full flex flex-col justify-between">
+            <motion.div 
+              key={idx} 
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: idx * 0.05 }}
+              className="relative group cursor-default"
+            >
+              <div className="glass-panel rounded-2xl p-4 border border-white/[0.05] relative overflow-hidden h-full flex flex-col justify-between hover:neon-border-purple transition-all duration-300">
                 <div className="flex items-center justify-between mb-3">
                   <span className="text-[10px] font-bold text-slate-400 tracking-wider uppercase truncate max-w-[80%]">{s.name}</span>
                   <div className={`p-2 rounded-xl shrink-0 ${s.bg}`}>
@@ -233,21 +244,21 @@ export default function OverviewPage() {
                   </div>
                 </div>
                 <p className={`font-bold tracking-tight ${isLongValue ? 'text-lg' : 'text-2xl'} ${s.valueColor || 'text-white'} truncate`}>{s.value}</p>
-                <div className={`absolute -bottom-6 -right-6 w-24 h-24 ${s.bg} rounded-full blur-2xl opacity-50`}></div>
+                <div className={`absolute -bottom-6 -right-6 w-24 h-24 ${s.bg} rounded-full blur-2xl opacity-50 group-hover:scale-150 transition-transform duration-500`}></div>
               </div>
-            </div>
+            </motion.div>
           );
         })}
-      </div>
+      </motion.div>
 
       {/* Multi-Pair Heatmap & Profit Target Ring */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2">
           <MarketHeatmap />
         </div>
-        <div>
-          <ProfitProgressRing currentProfit={summary.totalPnl} targetProfit={30} />
-        </div>
+        <motion.div whileHover={{ scale: 1.02 }} transition={{ type: "spring", stiffness: 300 }}>
+          <ProfitProgressRing currentProfit={summary.totalPnl} targetProfit={riskStatus?.softTargetUsd || 35} />
+        </motion.div>
       </div>
 
       {/* Live TradingView Interactive Chart & Controls */}

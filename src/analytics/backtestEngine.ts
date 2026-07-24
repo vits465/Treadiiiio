@@ -14,6 +14,8 @@ export interface BacktestParams {
   instrument: string;
   granularity?: string;
   candleCount?: number;
+  slippagePips?: number;
+  commissionUsdPerLot?: number;
 }
 
 export interface BacktestResultMetrics {
@@ -59,7 +61,7 @@ function getStrategyInstance(name: string): Strategy {
 }
 
 export async function runBacktestEngine(params: BacktestParams): Promise<BacktestResultMetrics> {
-  const { strategyName, instrument, granularity = '5m', candleCount = 300 } = params;
+  const { strategyName, instrument, granularity = '5m', candleCount = 300, slippagePips = 1.5, commissionUsdPerLot = 3.0 } = params;
   const strategy = getStrategyInstance(strategyName);
 
   let candles: Candle[] = [];
@@ -202,9 +204,14 @@ export async function runBacktestEngine(params: BacktestParams): Promise<Backtes
 
       if (slHit) {
         const exitPrice = activePos.slPrice;
-        const pnl = isBuy
-          ? (exitPrice - activePos.entryPrice) * activePos.units
-          : (activePos.entryPrice - exitPrice) * activePos.units;
+        const exitPriceWithSlippage = isBuy ? (exitPrice - slippagePips * pipSize) : (exitPrice + slippagePips * pipSize);
+        const grossPnl = isBuy
+          ? (exitPriceWithSlippage - activePos.entryPrice) * activePos.units
+          : (activePos.entryPrice - exitPriceWithSlippage) * activePos.units;
+          
+        const lots = activePos.units / contractSize;
+        const commission = lots * commissionUsdPerLot * 2; // entry and exit
+        const pnl = grossPnl - commission;
 
         tradeHistory.push({
           id: activePos.id,
@@ -212,7 +219,7 @@ export async function runBacktestEngine(params: BacktestParams): Promise<Backtes
           entryTime: activePos.entryTime,
           exitTime: candle.time,
           entryPrice: activePos.entryPrice,
-          exitPrice,
+          exitPrice: exitPriceWithSlippage,
           pnl,
           reason: activePos.partialHit ? 'Break-Even SL Hit' : 'Stop Loss Hit',
         });
@@ -221,9 +228,14 @@ export async function runBacktestEngine(params: BacktestParams): Promise<Backtes
         activePos = null;
       } else if (tp2Hit) {
         const exitPrice = activePos.tp2Price!;
-        const pnl = isBuy
-          ? (exitPrice - activePos.entryPrice) * activePos.units
-          : (activePos.entryPrice - exitPrice) * activePos.units;
+        const exitPriceWithSlippage = isBuy ? (exitPrice - slippagePips * pipSize) : (exitPrice + slippagePips * pipSize);
+        const grossPnl = isBuy
+          ? (exitPriceWithSlippage - activePos.entryPrice) * activePos.units
+          : (activePos.entryPrice - exitPriceWithSlippage) * activePos.units;
+
+        const lots = activePos.units / contractSize;
+        const commission = lots * commissionUsdPerLot * 2;
+        const pnl = grossPnl - commission;
 
         tradeHistory.push({
           id: activePos.id,
@@ -231,7 +243,7 @@ export async function runBacktestEngine(params: BacktestParams): Promise<Backtes
           entryTime: activePos.entryTime,
           exitTime: candle.time,
           entryPrice: activePos.entryPrice,
-          exitPrice,
+          exitPrice: exitPriceWithSlippage,
           pnl,
           reason: 'Target Exit (1:3 RRR)',
         });
@@ -253,7 +265,8 @@ export async function runBacktestEngine(params: BacktestParams): Promise<Backtes
 
       const signal = strategy.onCandle(candle, context);
       if (signal && (signal.action === 'BUY' || signal.action === 'SELL')) {
-        const entryPrice = signal.action === 'BUY' ? candle.close + pipSize * 1.5 : candle.close;
+        const baseEntryPrice = signal.action === 'BUY' ? candle.close + pipSize * 1.5 : candle.close;
+        const entryPrice = signal.action === 'BUY' ? baseEntryPrice + slippagePips * pipSize : baseEntryPrice - slippagePips * pipSize;
         const slPips = signal.stopLossPips || 20;
         const tp1Pips = signal.tp1Pips || (slPips * 2);
         const tp2Pips = signal.tp2Pips || (slPips * 3);
@@ -351,5 +364,44 @@ export async function runBacktestEngine(params: BacktestParams): Promise<Backtes
       ...t,
       pnl: isNaN(t.pnl) ? 0 : Math.round(t.pnl * 100) / 100,
     })),
+  };
+}
+
+export async function runMonteCarlo(params: BacktestParams, simulations: number = 100): Promise<{
+  medianReturnPct: number;
+  worstCaseReturnPct: number;
+  bestCaseReturnPct: number;
+  probabilityOfProfit: number;
+  medianMaxDrawdown: number;
+}> {
+  const returns = [];
+  const drawdowns = [];
+
+  for (let i = 0; i < simulations; i++) {
+    // Inject random slippage multiplier (0.5 to 2.5x normal slippage)
+    const runParams = {
+      ...params,
+      slippagePips: (params.slippagePips || 1.5) * (0.5 + Math.random() * 2.0)
+    };
+    const result = await runBacktestEngine(runParams);
+    returns.push(result.netReturnPct);
+    drawdowns.push(result.maxDrawdown);
+  }
+
+  returns.sort((a, b) => a - b);
+  drawdowns.sort((a, b) => a - b);
+
+  const medianReturnPct = returns[Math.floor(simulations / 2)];
+  const worstCaseReturnPct = returns[Math.floor(simulations * 0.05)]; // 5th percentile
+  const bestCaseReturnPct = returns[Math.floor(simulations * 0.95)]; // 95th percentile
+  const medianMaxDrawdown = drawdowns[Math.floor(simulations / 2)];
+  const probabilityOfProfit = (returns.filter(r => r > 0).length / simulations) * 100;
+
+  return {
+    medianReturnPct,
+    worstCaseReturnPct,
+    bestCaseReturnPct,
+    probabilityOfProfit,
+    medianMaxDrawdown
   };
 }

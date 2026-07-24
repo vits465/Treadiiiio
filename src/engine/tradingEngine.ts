@@ -159,7 +159,8 @@ export class TradingEngine {
     atrPercentile?: number,
     requestedLots?: number,
     tp1Pips?: number,
-    tp2Pips?: number
+    tp2Pips?: number,
+    riskMultiplier: number = 1.0
   ): Promise<string | null> {
     if (this.paused) {
       logger.debug('Engine is paused, rejecting order.');
@@ -255,6 +256,9 @@ export class TradingEngine {
       const minLots = isXau ? 0.01 : 0.01;
       unitsToTrade = minLots * contractSize;
     }
+
+    // Apply strategy budget / regime risk multiplier
+    unitsToTrade = unitsToTrade * riskMultiplier;
 
     // Final total-open-risk check using the actual risk that will be used
     if (!RiskManager.checkTotalOpenRisk(this.balance, openPositions, sized.riskPctUsed, instrument)) {

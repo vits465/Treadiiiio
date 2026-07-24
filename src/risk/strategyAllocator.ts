@@ -101,11 +101,22 @@ export class StrategyAllocator {
   }
 
   /**
-   * Multiplier to scale trade risk based on strategy's assigned risk budget.
-   * e.g. 'ml_signal' (0.40 budget) gets 1.0 multiplier, 'grid_overlay' (0.10 budget) gets 0.25 multiplier.
+   * Multiplier to scale trade risk based on strategy's assigned risk budget and market regime.
    */
-  public static getStrategyRiskMultiplier(strategyName: string): number {
-    const budget = this.DEFAULT_BUDGETS[strategyName] || 0.25;
+  public static getStrategyRiskMultiplier(strategyName: string, currentRegime: string = 'NORMAL'): number {
+    let budget = this.DEFAULT_BUDGETS[strategyName] || 0.25;
+    
+    // Dynamically shift allocations based on regime
+    if (currentRegime === 'VOLATILE') {
+      if (strategyName === 'volatility_arbitrage') budget *= 1.5; // Boost vol arb
+      if (strategyName === 'rsi_reversion') budget *= 0.5; // Cut mean reversion in volatile markets
+      if (strategyName === 'grid_overlay') budget = 0; // Disable grid in high volatility
+    } else if (currentRegime === 'CALM') {
+      if (strategyName === 'rsi_reversion') budget *= 1.5; // Boost mean reversion
+      if (strategyName === 'grid_overlay') budget *= 1.5; // Boost grid
+      if (strategyName === 'volatility_arbitrage') budget = 0; // Cut vol arb in calm markets
+    }
+
     // Normalize relative to 0.40 (max strategy budget)
     return Math.min(1.0, budget / 0.40);
   }

@@ -11,3 +11,5 @@ joblib>=1.4.2
 MetaTrader5>=5.0.45
 pandas-ta-classic
 shap
+torch>=2.0.0
+transformers>=4.30.0

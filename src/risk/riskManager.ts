@@ -5,6 +5,7 @@ import { PositionInfo } from '../strategy/strategy.interface';
 import { RejectionLogger } from './rejectionLogger';
 import { TelegramNotifier } from '../notifier/telegram';
 import { CorrelationManager } from './correlationManager';
+import { calculateKellyRiskPct } from './kellySizing';
 
 export type SizeTier = 'DISCARDED' | 'REDUCED' | 'NORMAL' | 'STRETCH';
 
@@ -189,8 +190,10 @@ export class RiskManager {
     const isXau = instrument.includes('XAU');
     const pipSize = (isJpy || isXau) ? 0.01 : 0.0001;
 
-    // Hard Per-Trade Risk Cap (e.g. 1.5%)
-    const perTradeCapPct = config.RISK_PER_TRADE_CAP_PCT;
+    // Use Dynamic Kelly Criterion for Base Risk Cap
+    const kellyPct = calculateKellyRiskPct();
+    const perTradeCapPct = kellyPct * 100; // kelly is returned as a decimal e.g. 0.015
+    
     
     // Per-pair confidence threshold resolution
     const normInst = CorrelationManager.normalizeInstrument(instrument);
@@ -272,19 +275,32 @@ export class RiskManager {
     // Convert risk USD to position lots
     const contractSize = isXau ? 100 : 100000;
     const rawUnits = riskUsdAtStop / slDistance;
-    let volume = rawUnits / contractSize;
+    let rawVolume = rawUnits / contractSize;
 
-    // Lot size step rounding (0.01 lot increments for Forex, 0.01/0.001 for Gold)
-    const minVolume = isXau ? 0.01 : 0.01;
-    if (volume < minVolume * 0.2) {
+    // Dynamic Lot Sizing Tiers (0.01, 0.02, 0.03, 0.04, 0.05 lots) based on signal confidence/conviction
+    let lotTier = 0.01;
+    if (confidenceScore >= 0.88) {
+      lotTier = 0.05;
+    } else if (confidenceScore >= 0.78) {
+      lotTier = 0.04;
+    } else if (confidenceScore >= 0.68) {
+      lotTier = 0.03;
+    } else if (confidenceScore >= 0.55) {
+      lotTier = 0.02;
+    } else {
+      lotTier = 0.01;
+    }
+
+    let volume = 0;
+    if (rawVolume < 0.001) {
       volume = 0;
       sizeTier = 'DISCARDED';
       effectiveRiskPct = 0;
-    } else if (volume < minVolume) {
-      // Micro / Demo Account Floor: Enforce broker minimum 0.01 lot size so trades execute
-      volume = minVolume;
     } else {
+      volume = Math.max(rawVolume, lotTier);
+      volume = Math.min(volume, 0.05); // Cap at 0.05 max lot size
       volume = Math.floor(volume * 100) / 100;
+      if (volume < 0.01) volume = 0.01;
     }
 
     const decision: SizingDecision = {
@@ -532,7 +548,11 @@ export class RiskManager {
   }
 
   public static checkCorrelationExposure(instrument: string, openPositions: PositionInfo[], action: 'BUY' | 'SELL'): boolean {
-    return true;
+    const formattedPositions = openPositions.map(p => ({
+      instrument: p.instrument,
+      side: p.action as 'LONG' | 'SHORT' | 'BUY' | 'SELL'
+    }));
+    return this.checkCorrelationCap(formattedPositions, instrument, action);
   }
 
   public static getEffectiveRiskPct(balance: number, mode: string = 'conservative'): number {

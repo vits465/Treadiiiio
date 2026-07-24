@@ -68,6 +68,15 @@ def place_order(req: OrderRequest):
         tp_points = req.tp_pips * 10 * point
         tp = price + tp_points if req.action == "BUY" else price - tp_points
         
+    # Determine allowed filling mode dynamically
+    filling_mode = mt5.ORDER_FILLING_IOC
+    if symbol_info.filling_mode & mt5.SYMBOL_FILLING_IOC:
+        filling_mode = mt5.ORDER_FILLING_IOC
+    elif symbol_info.filling_mode & mt5.SYMBOL_FILLING_FOK:
+        filling_mode = mt5.ORDER_FILLING_FOK
+    else:
+        filling_mode = mt5.ORDER_FILLING_RETURN
+
     request = {
         "action": mt5.TRADE_ACTION_DEAL,
         "symbol": symbol,
@@ -80,7 +89,7 @@ def place_order(req: OrderRequest):
         "magic": 234000,
         "comment": "Bot Order",
         "type_time": mt5.ORDER_TIME_GTC,
-        "type_filling": mt5.ORDER_FILLING_IOC,
+        "type_filling": filling_mode,
     }
     
     result = mt5.order_send(request)

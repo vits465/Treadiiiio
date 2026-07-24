@@ -41,7 +41,7 @@ describe('Min-lot rejection on tiny balance', () => {
   test('$150 balance with 200-pip SL → 0 units (budget cannot support 0.01 lot)', () => {
     // At $150 balance (non-JPY), riskAmt = 0.5% * 150 = $0.75
     // 0.01 lot on 200-pip SL = 1000 * 200 * 0.0001 = $20 risk → exceeds $0.75 → rejected
-    const result = RiskManager.calculateSizedOrder('EUR/USD', 200, 150);
+    const result = RiskManager.calculateSizedOrder('EUR/USD', 200, 150, 0.35);
     expect(result.units).toBe(0);
     expect(result.riskPctUsed).toBe(0);
     expect(result.amountToRisk).toBe(0);
@@ -49,7 +49,7 @@ describe('Min-lot rejection on tiny balance', () => {
 
   test('$150 balance with tight 5-pip SL → may produce valid units', () => {
     // At $150 balance: risk = $0.75; 0.01 lot on 5-pip SL = 1000 * 5 * 0.0001 = $0.50 < $0.75
-    const result = RiskManager.calculateSizedOrder('EUR/USD', 5, 150);
+    const result = RiskManager.calculateSizedOrder('EUR/USD', 5, 150, 0.35);
     // This might or might not pass depending on precise calculation — just ensure no crash
     // and riskPctUsed ≤ RISK_MAX_POSITION_SIZE_PCT if units > 0
     if (result.units > 0) {
@@ -61,7 +61,7 @@ describe('Min-lot rejection on tiny balance', () => {
 
   test('min-lot rejection does NOT round up to force a trade', () => {
     // $100 balance, 100-pip SL — must be rejected outright
-    const result = RiskManager.calculateSizedOrder('EUR/USD', 100, 100);
+    const result = RiskManager.calculateSizedOrder('EUR/USD', 100, 100, 0.35);
     expect(result.units).toBe(0);
     // Crucially, amountToRisk must be 0 (not a non-zero approximation)
     expect(result.amountToRisk).toBe(0);
