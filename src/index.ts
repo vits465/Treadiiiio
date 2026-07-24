@@ -201,7 +201,7 @@ async function bootstrap() {
 
             let strategyCandles = candles;
             if (strategy.name === 'asian_killzone') {
-              strategyCandles = await PriceFeed.fetchCandles(pair, 100, '5m');
+              strategyCandles = await PriceFeed.fetchCandles(pair, 300, '5m');
             }
 
             const context: MarketContext = {
