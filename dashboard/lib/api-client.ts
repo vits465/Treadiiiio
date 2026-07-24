@@ -293,6 +293,7 @@ export interface RiskStatus {
   maxConcurrentPositions: number;
   currentOpenPositions: number;
   startOfDayBalance?: number;
+  softTargetUsd?: number;
 }
 
 export const getRiskStatus = () => apiFetch<RiskStatus>("/api/risk-status");
