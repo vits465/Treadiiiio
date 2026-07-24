@@ -4,6 +4,7 @@ import { db } from '../db';
 import { PositionInfo } from '../strategy/strategy.interface';
 import { RejectionLogger } from './rejectionLogger';
 import { TelegramNotifier } from '../notifier/telegram';
+import { CorrelationManager } from './correlationManager';
 
 export type SizeTier = 'DISCARDED' | 'REDUCED' | 'NORMAL' | 'STRETCH';
 
@@ -190,7 +191,12 @@ export class RiskManager {
 
     // Hard Per-Trade Risk Cap (e.g. 1.5%)
     const perTradeCapPct = config.RISK_PER_TRADE_CAP_PCT;
-    const minThreshold = config.RISK_CONFIDENCE_MIN_THRESHOLD;
+    
+    // Per-pair confidence threshold resolution
+    const normInst = CorrelationManager.normalizeInstrument(instrument);
+    const pairOverrideThresh = config.PAIR_CONFIDENCE_THRESHOLDS[normInst] ?? config.PAIR_CONFIDENCE_THRESHOLDS[instrument];
+    const minThreshold = pairOverrideThresh !== undefined ? pairOverrideThresh : config.RISK_CONFIDENCE_MIN_THRESHOLD;
+    
     const normalTierThreshold = config.RISK_CONFIDENCE_TIER_NORMAL;
     const stretchTierThreshold = config.RISK_CONFIDENCE_TIER_STRETCH;
 
@@ -268,17 +274,15 @@ export class RiskManager {
     const rawUnits = riskUsdAtStop / slDistance;
     let volume = rawUnits / contractSize;
 
-    // Lot size step rounding (0.01 lot increments)
-    const minVolume = 0.01;
-    if (volume < minVolume) {
-      // Micro account optimization: if risk for 0.01 lot is under max per-trade risk cap, floor to 0.01 lot
-      const minLotRiskUsd = minVolume * contractSize * slDistance;
-      const maxCapUsd = accountEquity * ((config.RISK_PER_TRADE_CAP_PCT * 1.25) / 100);
-      if (minLotRiskUsd <= maxCapUsd) {
-        volume = minVolume;
-      } else {
-        volume = 0;
-      }
+    // Lot size step rounding (0.01 lot increments for Forex, 0.01/0.001 for Gold)
+    const minVolume = isXau ? 0.01 : 0.01;
+    if (volume < minVolume * 0.2) {
+      volume = 0;
+      sizeTier = 'DISCARDED';
+      effectiveRiskPct = 0;
+    } else if (volume < minVolume) {
+      // Micro / Demo Account Floor: Enforce broker minimum 0.01 lot size so trades execute
+      volume = minVolume;
     } else {
       volume = Math.floor(volume * 100) / 100;
     }
@@ -354,6 +358,33 @@ export class RiskManager {
         undefined,
         undefined,
         `${currentOpenCount}/${config.RISK_MAX_CONCURRENT_POSITIONS} positions open`
+      );
+      return false;
+    }
+    return true;
+  }
+
+  public static checkCorrelationCap(
+    openPositions: { instrument: string; side: 'LONG' | 'SHORT' | 'BUY' | 'SELL' }[],
+    candidateInstrument: string,
+    candidateSide: 'LONG' | 'SHORT' | 'BUY' | 'SELL'
+  ): boolean {
+    const result = CorrelationManager.checkCorrelationCap(
+      openPositions,
+      candidateInstrument,
+      candidateSide,
+      config.MAX_PORTFOLIO_CORRELATION_SUM
+    );
+
+    if (result.exceeded) {
+      logger.warn(`[CORRELATION RISK] ${result.reason}`);
+      RejectionLogger.log(
+        'RiskManager.checkCorrelationCap',
+        'CORRELATION_CAP_EXCEEDED',
+        candidateInstrument,
+        candidateSide,
+        undefined,
+        result.reason
       );
       return false;
     }
@@ -505,7 +536,14 @@ export class RiskManager {
   }
 
   public static getEffectiveRiskPct(balance: number, mode: string = 'conservative'): number {
-    return config.RISK_PER_TRADE_CAP_PCT;
+    let basePct = config.RISK_BASE_PCT_PER_TRADE;
+    if (balance < 150) {
+      return mode === 'aggressive' ? Math.min(basePct, 1.0) : Math.min(basePct, 0.5);
+    }
+    if (balance < 500) {
+      return Math.min(basePct, 1.0);
+    }
+    return basePct;
   }
 
   public static calculateSizedOrder(
@@ -530,8 +568,8 @@ export class RiskManager {
 
     return {
       units,
-      riskPctUsed: decision.effectiveRiskPct,
-      amountToRisk: decision.riskUsdAtStop,
+      riskPctUsed: decision.lots === 0 ? 0 : decision.effectiveRiskPct,
+      amountToRisk: decision.lots === 0 ? 0 : decision.riskUsdAtStop,
     };
   }
 }

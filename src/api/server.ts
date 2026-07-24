@@ -804,6 +804,144 @@ app.get('/api/rejections', (req, res) => {
   }
 });
 
+// Analytics & Scaling Endpoints
+import { DemoLiveSimulator } from '../analytics/demoLiveSimulator';
+import { ScalingRoadmap } from '../analytics/scalingRoadmap';
+import { KellySizing } from '../analytics/kellySizing';
+import { CorrelationManager } from '../risk/correlationManager';
+import { StrategyAllocator } from '../risk/strategyAllocator';
+
+app.get('/api/analytics/demo-real-sim', (req, res) => {
+  try {
+    const trades = db.prepare(`
+      SELECT id, instrument, action, entry_time, exit_time,
+             entry_price, exit_price, units, pnl, strategy, status
+      FROM trades
+      WHERE status = 'CLOSED'
+    `).all() as any[];
+    
+    const mappedTrades = trades.map(t => ({
+      pnl: t.pnl || 0,
+      entryPrice: t.entry_price,
+      exitPrice: t.exit_price || 0,
+      action: t.action as 'BUY' | 'SELL',
+      instrument: t.instrument,
+      units: t.units
+    }));
+    
+    const startingBalance = config.STARTING_BALANCE;
+    const report = DemoLiveSimulator.runSimulation(mappedTrades, startingBalance);
+    res.json(report);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/analytics/scaling-roadmap', (req, res) => {
+  try {
+    const balance = TradingEngine.getBalance();
+    
+    const firstTrade = db.prepare(`SELECT entry_time FROM trades ORDER BY entry_time ASC LIMIT 1`).get() as any;
+    let currentMonth = 1;
+    if (firstTrade && firstTrade.entry_time) {
+      const firstDate = new Date(firstTrade.entry_time);
+      const now = new Date();
+      const diffTime = Math.abs(now.getTime() - firstDate.getTime());
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      currentMonth = Math.max(1, Math.ceil(diffDays / 30));
+    }
+
+    const projection = ScalingRoadmap.generateProjection(currentMonth, balance);
+    res.json(projection);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/analytics/kelly-sizing', (req, res) => {
+   try {
+     const balance = TradingEngine.getBalance();
+     
+     const closedTrades = db.prepare(`
+        SELECT pnl FROM trades WHERE status='CLOSED' ORDER BY entry_time DESC LIMIT 100
+     `).all() as any[];
+     
+     const wins = closedTrades.filter(t => t.pnl > 0);
+     const losses = closedTrades.filter(t => t.pnl <= 0);
+     const winRate = closedTrades.length > 0 ? wins.length / closedTrades.length : 0.55;
+     
+     const avgWin = wins.length > 0 ? wins.reduce((a, b) => a + b.pnl, 0) / wins.length : 15;
+     const avgLoss = losses.length > 0 ? Math.abs(losses.reduce((a, b) => a + b.pnl, 0) / losses.length) : 10;
+     const profitFactor = avgLoss > 0 ? avgWin / avgLoss : 1.5;
+
+     const low = KellySizing.calculatePositionSize({ winRate, profitFactor, confidenceTier: 'LOW', currentEquity: balance });
+     const mid = KellySizing.calculatePositionSize({ winRate, profitFactor, confidenceTier: 'MID', currentEquity: balance });
+     const high = KellySizing.calculatePositionSize({ winRate, profitFactor, confidenceTier: 'HIGH', currentEquity: balance });
+
+     res.json({
+        metrics: { winRate, profitFactor, sampleSize: closedTrades.length },
+        tiers: { low, mid, high }
+     });
+   } catch(e: any) {
+     res.status(500).json({ error: e.message });
+   }
+});
+
+app.get('/api/risk/correlation', (req, res) => {
+  try {
+    const openPositions = TradingEngine.getOpenPositions();
+    const mappedPositions = openPositions.map(p => ({
+      instrument: p.instrument,
+      side: (p.action === 'BUY' ? 'LONG' : 'SHORT') as 'LONG' | 'SHORT'
+    }));
+
+    const matrix = CorrelationManager.getCorrelationMatrix();
+    const currentSum = CorrelationManager.checkCorrelationCap(mappedPositions, 'NONE', 'LONG', config.MAX_PORTFOLIO_CORRELATION_SUM);
+
+    res.json({
+      matrix,
+      openPositions: mappedPositions,
+      currentCorrelationSum: currentSum.totalCorrelationSum,
+      maxCap: config.MAX_PORTFOLIO_CORRELATION_SUM,
+      pairConfidenceThresholds: config.PAIR_CONFIDENCE_THRESHOLDS
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/risk/strategy-allocations', (req, res) => {
+  try {
+    const balance = TradingEngine.getBalance();
+    const allocations = StrategyAllocator.getStrategyAllocations(balance);
+
+    res.json({
+      accountEquity: balance,
+      allocations,
+      maxMonthlyLossLimitPct: config.STRATEGY_MONTHLY_LOSS_LIMIT_PCT || -8.0
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+import { runBacktestEngine } from '../analytics/backtestEngine';
+app.post('/api/backtest', async (req, res) => {
+  try {
+    const { strategyName, instrument, granularity, candleCount } = req.body;
+    const results = await runBacktestEngine({
+      strategyName: strategyName || 'asian_killzone',
+      instrument: instrument || 'XAU/USD',
+      granularity: granularity || '5m',
+      candleCount: candleCount ? parseInt(candleCount, 10) : 300
+    });
+    res.json(results);
+  } catch (err: any) {
+    logger.error('Backtest API error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export function startApiServer() {
   setLogBroadcastCallback((logRecord) => {
     broadcastEvent({ type: 'log_entry', data: logRecord });

@@ -92,7 +92,9 @@ export class TradingEngine {
     const rows = db.prepare(`
       SELECT id, instrument, action, entry_time as entryTime, entry_price as entryPrice, 
              units, unrealized_pnl as unrealizedPnL, stop_loss as stopLoss, 
-             take_profit as takeProfit, strategy, broker_order_id as brokerOrderId
+             take_profit as takeProfit, tp1_price as tp1Price, tp2_price as tp2Price,
+             partial_tp_hit as partialTpHit, initial_units as initialUnits,
+             strategy, broker_order_id as brokerOrderId
       FROM positions
     `).all();
     return rows as PositionInfo[];
@@ -114,7 +116,9 @@ export class TradingEngine {
       const row = db.prepare(`
         SELECT id, instrument, action, entry_time as entryTime, entry_price as entryPrice, 
                units, unrealized_pnl as unrealizedPnL, stop_loss as stopLoss, 
-               take_profit as takeProfit, strategy, broker_order_id as brokerOrderId
+               take_profit as takeProfit, tp1_price as tp1Price, tp2_price as tp2Price,
+               partial_tp_hit as partialTpHit, initial_units as initialUnits,
+               strategy, broker_order_id as brokerOrderId
         FROM positions
         WHERE instrument = ? AND strategy = ?
       `).get(instrument, strategy);
@@ -123,7 +127,9 @@ export class TradingEngine {
       const row = db.prepare(`
         SELECT id, instrument, action, entry_time as entryTime, entry_price as entryPrice, 
                units, unrealized_pnl as unrealizedPnL, stop_loss as stopLoss, 
-               take_profit as takeProfit, strategy, broker_order_id as brokerOrderId
+               take_profit as takeProfit, tp1_price as tp1Price, tp2_price as tp2Price,
+               partial_tp_hit as partialTpHit, initial_units as initialUnits,
+               strategy, broker_order_id as brokerOrderId
         FROM positions
         WHERE instrument = ?
       `).get(instrument);
@@ -150,7 +156,10 @@ export class TradingEngine {
     amountToRecover?: number,
     atr?: number,
     mlConfidence?: number,
-    atrPercentile?: number
+    atrPercentile?: number,
+    requestedLots?: number,
+    tp1Pips?: number,
+    tp2Pips?: number
   ): Promise<string | null> {
     if (this.paused) {
       logger.debug('Engine is paused, rejecting order.');
@@ -219,7 +228,10 @@ export class TradingEngine {
       const atrPips = atr / pipSize;
       slPips = atrPips * config.ATR_SL_MULTIPLIER;
       tpPips = atrPips * config.ATR_TP_MULTIPLIER;
-      logger.info(`[ATR SIZING] Used ATR (${atr.toFixed(5)}) for ${instrument} to calculate SL: ${slPips.toFixed(1)} pips, TP: ${tpPips.toFixed(1)} pips`);
+
+      slPips = Math.round(slPips * 10) / 10;
+      tpPips = Math.round(tpPips * 10) / 10;
+      logger.info(`[ATR SIZING] Used ATR (${atr.toFixed(5)}) for ${instrument} to calculate SL: ${slPips} pips, TP: ${tpPips} pips`);
     }
     
     // Area 1: Dynamic sizing with confidence + volatility scalars
@@ -233,10 +245,15 @@ export class TradingEngine {
       currentPrice    // used for USD/XXX quote currency conversion
     );
 
-    if (sized.units <= 0) {
-      logger.warn(`Calculated unit size is 0 for ${instrument}. Cancelling execution.`);
-      RejectionLogger.log('TradingEngine.executeOrder', 'ZERO_UNITS', instrument, action, strategy, 'Position size calculated as 0');
-      return null;
+    const contractSize = isXau ? 100 : 100000;
+    let unitsToTrade = sized.units;
+    
+    // Check if strategy requested specific lot size (e.g. 0.02 lots for Asian Kill Zone)
+    if (requestedLots && requestedLots > 0) {
+      unitsToTrade = requestedLots * contractSize;
+    } else if (unitsToTrade <= 0) {
+      const minLots = isXau ? 0.01 : 0.01;
+      unitsToTrade = minLots * contractSize;
     }
 
     // Final total-open-risk check using the actual risk that will be used
@@ -245,9 +262,8 @@ export class TradingEngine {
     }
 
     // Determine lot size from units; MT5 takes volume in lots. Gold is 100 oz per lot, Forex is 100,000.
-    const contractSize = isXau ? 100 : 100000;
-    let volume = sized.units / contractSize;
-    const minVolume = isXau ? 0.001 : 0.01;
+    let volume = unitsToTrade / contractSize;
+    const minVolume = isXau ? 0.01 : 0.01;
     if (volume < minVolume) volume = minVolume; // Enforce minimum lot size
 
     // Call MT5 API (handles both live and simulator modes)
@@ -265,6 +281,8 @@ export class TradingEngine {
 
     let slPrice: number | null = null;
     let tpPrice: number | null = null;
+    let tp1Price: number | null = null;
+    let tp2Price: number | null = null;
 
     if (slPips) {
       slPrice = action === 'BUY'
@@ -280,16 +298,32 @@ export class TradingEngine {
       tpPrice = parseFloat(tpPrice.toFixed((isJpy || isXau) ? 3 : 5));
     }
 
+    if (tp1Pips) {
+      tp1Price = action === 'BUY'
+        ? entryPrice + tp1Pips * pipSize
+        : entryPrice - tp1Pips * pipSize;
+      tp1Price = parseFloat(tp1Price.toFixed((isJpy || isXau) ? 3 : 5));
+    }
+
+    if (tp2Pips) {
+      tp2Price = action === 'BUY'
+        ? entryPrice + tp2Pips * pipSize
+        : entryPrice - tp2Pips * pipSize;
+      tp2Price = parseFloat(tp2Price.toFixed((isJpy || isXau) ? 3 : 5));
+    }
+
+    const initialRiskUsd = slPrice ? Math.abs(entryPrice - slPrice) * unitsToTrade : (isXau ? 2.0 * unitsToTrade : 0.0020 * unitsToTrade);
+
     db.prepare(`
-      INSERT INTO positions (id, instrument, action, entry_time, entry_price, units, unrealized_pnl, stop_loss, take_profit, strategy, broker_order_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(orderId, instrument, action, entryTime, entryPrice, sized.units, 0, slPrice, tpPrice, strategy, brokerOrderId);
+      INSERT INTO positions (id, instrument, action, entry_time, entry_price, units, unrealized_pnl, stop_loss, take_profit, tp1_price, tp2_price, partial_tp_hit, initial_units, strategy, broker_order_id, initial_risk_usd, partial_booked)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, 0)
+    `).run(orderId, instrument, action, entryTime, entryPrice, unitsToTrade, 0, slPrice, tpPrice, tp1Price, tp2Price, unitsToTrade, strategy, brokerOrderId, initialRiskUsd);
 
     // Persist actual risk_pct taken for downstream accounting (recovery budget, audits)
     db.prepare(`
       INSERT INTO trades (id, instrument, action, entry_time, entry_price, units, strategy, status, broker_order_id, risk_pct)
       VALUES (?, ?, ?, ?, ?, ?, ?, 'OPEN', ?, ?)
-    `).run(orderId, instrument, action, entryTime, entryPrice, sized.units, strategy, brokerOrderId, sized.riskPctUsed);
+    `).run(orderId, instrument, action, entryTime, entryPrice, unitsToTrade, strategy, brokerOrderId, sized.riskPctUsed);
 
     logger.info(`[ORDER EXECUTED] MT5 Ticket: ${brokerOrderId} | ${action} ${volume.toFixed(2)} lots ${instrument} @ ${entryPrice.toFixed((isJpy || isXau) ? 3 : 5)} | SL: ${slPrice} | TP: ${tpPrice} | Risk: ${sized.riskPctUsed.toFixed(3)}%`);
 
@@ -375,8 +409,8 @@ export class TradingEngine {
     for (const pos of localPositions) {
       const quote = quotes.find((q) => q.instrument === pos.instrument);
       
-      // If position was closed in MT5 (e.g. SL or TP hit)
-      if ((pos as any).brokerOrderId && !mt5Ids.has((pos as any).brokerOrderId)) {
+      // If position was closed in MT5 (e.g. SL or TP hit) - skipped in simulator mode
+      if (!config.USE_SIMULATOR && (pos as any).brokerOrderId && !mt5Ids.has((pos as any).brokerOrderId)) {
         logger.info(`Position ${pos.id} (Broker: ${(pos as any).brokerOrderId}) no longer found in MT5. Assuming closed by broker.`);
         if (quote) {
            await this.closePosition(pos.id, quote, 'Closed by MT5 (SL/TP/Manual)');
@@ -400,6 +434,77 @@ export class TradingEngine {
         SET unrealized_pnl = ?
         WHERE id = ?
       `).run(unrealizedPnL, pos.id);
+
+      // --- 1:2 RRR 50% Partial Profit Booking & 1:3 RRR Full Exit ---
+      const posDetails = db.prepare(`SELECT initial_risk_usd, partial_booked, partial_tp_hit, tp1_price, tp2_price FROM positions WHERE id = ?`).get(pos.id) as any;
+      const initialRiskUsd = posDetails?.initial_risk_usd || 0;
+      const partialBooked = posDetails?.partial_booked || posDetails?.partial_tp_hit || 0;
+      const tp1Price = posDetails?.tp1_price || pos.tp1Price;
+      const tp2Price = posDetails?.tp2_price || pos.tp2Price;
+
+      const currentPrice = quote ? (pos.action === 'BUY' ? quote.bid : quote.ask) : pos.entryPrice;
+
+      // 1. Check SL Hit (including after SL is moved to Break-Even)
+      if (quote && pos.stopLoss) {
+        const slHit = pos.action === 'BUY' ? quote.bid <= pos.stopLoss : quote.ask >= pos.stopLoss;
+        if (slHit) {
+          logger.info(`[STOP LOSS HIT] Position ${pos.id} (${pos.instrument}) hit Stop Loss level of ${pos.stopLoss}. Closing position...`);
+          await this.closePosition(pos.id, quote, partialBooked ? 'Break-Even Stop Loss Hit' : 'Stop Loss Hit');
+          continue;
+        }
+      }
+
+      // 2. 1:2 RRR 50% Partial Close Check
+      let tp1Hit = false;
+      if (tp1Price) {
+        tp1Hit = pos.action === 'BUY' ? currentPrice >= tp1Price : currentPrice <= tp1Price;
+      } else if (initialRiskUsd > 0) {
+        tp1Hit = unrealizedPnL >= initialRiskUsd * 2;
+      }
+
+      if (!partialBooked && tp1Hit) {
+        const halfUnits = pos.units / 2;
+        const isXau = pos.instrument.includes('XAU');
+        const halfVolume = halfUnits / (isXau ? 100 : 100000);
+
+        logger.info(`[1:2 RRR ACHIEVED] Booking 50% partial profit (${halfVolume.toFixed(2)} lots) for ${pos.instrument} (${pos.strategy}). Moving SL to Break-Even...`);
+
+        if ((pos as any).brokerOrderId) {
+          await MT5Client.closePartialOrder((pos as any).brokerOrderId, halfVolume);
+        }
+
+        db.prepare(`
+          UPDATE positions
+          SET units = ?, stop_loss = entry_price, partial_booked = 1, partial_tp_hit = 1
+          WHERE id = ?
+        `).run(halfUnits, pos.id);
+
+        TelegramNotifier.sendMessage(
+          `🟢 *PARTIAL PROFIT BOOKED (1:2 RRR)*\n` +
+          `Instrument: ${pos.instrument}\n` +
+          `Strategy: ${pos.strategy}\n` +
+          `50% Exit Volume: ${halfVolume.toFixed(2)} lots\n` +
+          `Stop Loss updated to Break-Even: $${pos.entryPrice}`
+        );
+      }
+
+      // 3. 1:3 RRR Full Exit Check
+      let tp2Hit = false;
+      if (tp2Price) {
+        tp2Hit = pos.action === 'BUY' ? currentPrice >= tp2Price : currentPrice <= tp2Price;
+      } else if (pos.takeProfit) {
+        tp2Hit = pos.action === 'BUY' ? currentPrice >= pos.takeProfit : currentPrice <= pos.takeProfit;
+      } else if (initialRiskUsd > 0) {
+        tp2Hit = unrealizedPnL >= initialRiskUsd * 3;
+      }
+
+      if (tp2Hit) {
+        logger.info(`[1:3 RRR TARGET ACHIEVED] Position ${pos.id} (${pos.instrument}) reached 1:3 RRR profit. Closing remaining position in full...`);
+        if (quote) {
+          await this.closePosition(pos.id, quote, '1:3 RRR Target Achieved (Full Exit)');
+          continue;
+        }
+      }
 
       // Cash Take Profit check (e.g. $10.00 target cash profit per trade)
       const maxTradeProfitUsd = config.RISK_TRADE_TAKE_PROFIT_USD;

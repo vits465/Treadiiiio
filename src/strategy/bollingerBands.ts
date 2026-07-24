@@ -5,7 +5,7 @@ export class BollingerBandsStrategy implements Strategy {
   private period: number;
   private stdDevMultiplier: number;
 
-  constructor(period = 20, stdDevMultiplier = 2) {
+  constructor(period = 20, stdDevMultiplier = 1.8) {
     this.period = period;
     this.stdDevMultiplier = stdDevMultiplier;
   }

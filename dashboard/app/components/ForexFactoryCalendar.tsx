@@ -3,7 +3,7 @@
 
 import React, { useState, useEffect } from "react";
 import { Calendar, RefreshCw } from "lucide-react";
-import { NewsEvent, getNews } from "@/lib/api-client";
+import { NewsEvent, getNews } from "../../lib/api-client";
 
 export function ForexFactoryCalendar() {
   const [events, setEvents] = useState<NewsEvent[]>([]);

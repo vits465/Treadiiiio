@@ -124,13 +124,31 @@ export class PriceFeed {
     const cached = this.candleCache[cacheKey];
     const now = Date.now();
 
-    // Cache hit: return cache if less than 30 minutes old
-    if (cached && now - cached.timestamp < 30 * 60 * 1000) {
-      logger.debug(`Candle cache hit for ${instrument} (${granularity})`);
+    // Cache hit: return cache if less than 15 seconds old
+    if (cached && now - cached.timestamp < 15 * 1000) {
       return cached.candles;
     }
 
-    // --- PRIMARY: Massive.com (Polygon.io) — Real historical candles ---
+    // --- FAST PRIMARY: Local DB Cache (17,000+ historical candles) + Live MT5 tick update ---
+    const dbCached = this.getCachedCandles(instrument, count, granularity);
+    if (dbCached.length >= 20) {
+      const quote = this.getLatestQuote(instrument);
+      if (quote && dbCached.length > 0) {
+        const lastIndex = dbCached.length - 1;
+        const currentMid = (quote.bid + quote.ask) / 2;
+        dbCached[lastIndex] = {
+          ...dbCached[lastIndex],
+          close: currentMid,
+          high: Math.max(dbCached[lastIndex].high, currentMid),
+          low: Math.min(dbCached[lastIndex].low, currentMid),
+          time: new Date().toISOString(),
+        };
+      }
+      this.candleCache[cacheKey] = { candles: dbCached, timestamp: now };
+      return dbCached;
+    }
+
+    // --- SECONDARY: Massive.com (Polygon.io) ---
     try {
       await this.throttleMassiveCall();
       const ticker = toMassiveTicker(instrument);
@@ -245,10 +263,10 @@ export class PriceFeed {
 
     // --- QUATERNARY: cached / simulated ---
     if (cached) { cached.timestamp = now; return cached.candles; }
-    const dbCached = this.getCachedCandles(instrument, count, granularity);
-    if (dbCached.length > 0) {
-      this.candleCache[cacheKey] = { candles: dbCached, timestamp: now };
-      return dbCached;
+    const fallbackDb = this.getCachedCandles(instrument, count, granularity);
+    if (fallbackDb.length > 0) {
+      this.candleCache[cacheKey] = { candles: fallbackDb, timestamp: now };
+      return fallbackDb;
     }
     const simCandles = this.generateSimulatedCandles(instrument, count, granularity);
     this.candleCache[cacheKey] = { candles: simCandles, timestamp: now };

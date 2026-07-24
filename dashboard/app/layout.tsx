@@ -109,6 +109,7 @@ export default function RootLayout({
     { name: 'Strategy Lab', href: '/strategy-lab', icon: FlaskConical },
     { name: 'Model Monitor', href: '/model-monitor', icon: Cpu },
     { name: 'Risk Panel', href: '/risk', icon: ShieldAlert },
+    { name: 'Analytics', href: '/analytics', icon: TrendingUp },
     { name: 'Backtest', href: '/backtest', icon: TrendingUp },
     { name: 'Settings', href: '/settings', icon: Settings },
   ];

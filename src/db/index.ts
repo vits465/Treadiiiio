@@ -92,6 +92,10 @@ export function initDb() {
       unrealized_pnl REAL DEFAULT 0,
       stop_loss REAL,
       take_profit REAL,
+      tp1_price REAL,
+      tp2_price REAL,
+      partial_tp_hit INTEGER DEFAULT 0,
+      initial_units REAL,
       strategy TEXT NOT NULL,
       broker_order_id TEXT,
       max_favorable_price REAL,
@@ -156,6 +160,12 @@ export function initDb() {
 
   // In-place migrations for pre-existing databases (PRAGMA-based, idempotent)
   ensureColumn('trades', 'risk_pct', 'REAL');
+  ensureColumn('positions', 'partial_booked', 'INTEGER DEFAULT 0');
+  ensureColumn('positions', 'initial_risk_usd', 'REAL DEFAULT 0');
+  ensureColumn('positions', 'partial_tp_hit', 'INTEGER DEFAULT 0');
+  ensureColumn('positions', 'tp1_price', 'REAL');
+  ensureColumn('positions', 'tp2_price', 'REAL');
+  ensureColumn('positions', 'initial_units', 'REAL');
   ensureColumn('ml_confidence_log', 'accepted', 'INTEGER DEFAULT 1');
   ensureColumn('filter_rejections', 'ml_confidence', 'REAL');
 

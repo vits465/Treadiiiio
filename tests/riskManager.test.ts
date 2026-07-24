@@ -27,8 +27,8 @@ describe('RiskManager — Risk-Capped Adaptive Position Sizing Module', () => {
   });
 
   describe('2. Confidence-Gated Scaling Tiers', () => {
-    it('discards signals with confidence below minimum threshold (< 0.60)', () => {
-      const result = RiskManager.calculatePositionSize(100, 30, 0.58, 0, 'EUR/USD');
+    it('discards signals with confidence below minimum threshold (< 0.35 for EUR/USD)', () => {
+      const result = RiskManager.calculatePositionSize(100, 30, 0.28, 0, 'EUR/USD');
       expect(result.sizeTier).toBe('DISCARDED');
       expect(result.lots).toBe(0);
       expect(result.effectiveRiskPct).toBe(0);

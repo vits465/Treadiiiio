@@ -3,7 +3,7 @@
 
 import React from "react";
 import { X, Info, ShieldAlert, Cpu, CheckCircle2 } from "lucide-react";
-import { Position, Trade } from "@/lib/api-client";
+import { Position, Trade } from "../../lib/api-client";
 
 interface TradeRationaleModalProps {
   item: Position | Trade | null;

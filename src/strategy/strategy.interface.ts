@@ -11,7 +11,10 @@ export interface Signal {
   atr?: number; // Added for ATR-based TP/SL sizing
   stopLossPips?: number;
   takeProfitPips?: number;
+  tp1Pips?: number; // 1:2 RRR Partial Profit Pips
+  tp2Pips?: number; // 1:3 RRR Full Exit Pips
   amountToRecover?: number;
+  requestedLots?: number;
 }
 
 export interface PositionInfo {
@@ -24,7 +27,12 @@ export interface PositionInfo {
   unrealizedPnL: number;
   stopLoss?: number;
   takeProfit?: number;
+  tp1Price?: number;
+  tp2Price?: number;
+  partialTpHit?: number;
+  initialUnits?: number;
   strategy: string;
+  brokerOrderId?: string;
 }
 
 export interface MarketContext {

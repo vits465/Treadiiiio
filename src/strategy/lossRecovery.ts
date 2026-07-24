@@ -86,8 +86,8 @@ export class LossRecoveryStrategy implements Strategy {
     const currentRsi = rsi[rsi.length - 1];
 
     let action: 'BUY' | 'SELL' | null = null;
-    if (currentRsi < 30) action = 'BUY';   // Oversold — potential bounce up
-    else if (currentRsi > 70) action = 'SELL'; // Overbought — potential bounce down
+    if (currentRsi < 42) action = 'BUY';   // Bullish bounce opportunity to recover loss
+    else if (currentRsi > 58) action = 'SELL'; // Bearish bounce opportunity to recover loss
 
     if (action) {
       logger.info(

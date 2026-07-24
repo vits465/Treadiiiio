@@ -3,7 +3,7 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { Terminal, Search, Trash2, Pause, Play, ShieldAlert } from "lucide-react";
-import { LogRecord, getLogs } from "@/lib/api-client";
+import { LogRecord, getLogs } from "../../lib/api-client";
 
 interface BotConsoleLogsProps {
   logs?: LogRecord[];

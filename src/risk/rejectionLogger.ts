@@ -23,6 +23,7 @@ export type RejectionReasonCode =
   | 'TIME_FILTER'
   | 'CONSECUTIVE_LOSS_COOLDOWN'
   | 'DAILY_CIRCUIT_BREAKER'
+  | 'CORRELATION_CAP_EXCEEDED'
   | 'RECOVERY_DISABLED';
 
 /**

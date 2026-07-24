@@ -98,6 +98,7 @@ def place_order(req: OrderRequest):
 
 class CloseOrderRequest(BaseModel):
     order_id: str
+    volume: Optional[float] = None
 
 @router.post("/close")
 def close_order(req: CloseOrderRequest):
@@ -114,10 +115,12 @@ def close_order(req: CloseOrderRequest):
     order_type = mt5.ORDER_TYPE_SELL if position.type == mt5.ORDER_TYPE_BUY else mt5.ORDER_TYPE_BUY
     price = mt5.symbol_info_tick(symbol).bid if order_type == mt5.ORDER_TYPE_SELL else mt5.symbol_info_tick(symbol).ask
     
+    close_volume = req.volume if req.volume is not None and req.volume > 0 else position.volume
+
     request = {
         "action": mt5.TRADE_ACTION_DEAL,
         "symbol": symbol,
-        "volume": position.volume,
+        "volume": close_volume,
         "type": order_type,
         "position": ticket,
         "price": price,

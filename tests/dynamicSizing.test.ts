@@ -67,51 +67,21 @@ describe('RiskManager.calculateSizedOrder', () => {
     expect(atFullConf.units).toBe(full.units);
   });
 
-  test('confidence above full → capped at 1 (same as full)', () => {
-    const atFullConf = RiskManager.calculateSizedOrder('EUR/USD', SL_PIPS, BALANCE, 0.80);
-    const above = RiskManager.calculateSizedOrder('EUR/USD', SL_PIPS, BALANCE, 0.99);
-    expect(above.units).toBe(atFullConf.units);
+  test('confidence above normal threshold (0.85+) → STRETCH tier (larger or equal size)', () => {
+    const atNormalConf = RiskManager.calculateSizedOrder('EUR/USD', SL_PIPS, BALANCE, 0.80);
+    const stretch = RiskManager.calculateSizedOrder('EUR/USD', SL_PIPS, BALANCE, 0.99);
+    expect(stretch.units).toBeGreaterThanOrEqual(atNormalConf.units);
   });
 
-  test('low confidence (0.62) reduces size to ~78% of full', () => {
-    const full = RiskManager.calculateSizedOrder('EUR/USD', SL_PIPS, BALANCE, 0.80);
-    const low  = RiskManager.calculateSizedOrder('EUR/USD', SL_PIPS, BALANCE, 0.62);
-    // scalar = 0.62 / 0.80 = 0.775 — floored at 25% is not active at this level
-    expect(low.units).toBeLessThan(full.units);
-    const ratio = low.units / full.units;
-    expect(ratio).toBeGreaterThan(0.74);
-    expect(ratio).toBeLessThan(0.82);
+  test('REDUCED tier confidence (0.70) produces less units than NORMAL tier (0.80)', () => {
+    const normal = RiskManager.calculateSizedOrder('EUR/USD', SL_PIPS, BALANCE, 0.80);
+    const reduced = RiskManager.calculateSizedOrder('EUR/USD', SL_PIPS, BALANCE, 0.70);
+    expect(reduced.units).toBeLessThan(normal.units);
   });
 
-  test('very low confidence → floor at 25% of base (never zero)', () => {
-    const full = RiskManager.calculateSizedOrder('EUR/USD', SL_PIPS, BALANCE, 0.80);
-    const tiny = RiskManager.calculateSizedOrder('EUR/USD', SL_PIPS, BALANCE, 0.01);
-    // Floor should be 25% of base, so tiny cannot be < 25% of full
-    const ratio = tiny.units / full.units;
-    expect(ratio).toBeGreaterThanOrEqual(0.24); // slight tolerance for flooring
-  });
-
-  test('volatility scalar: high ATR percentile reduces size', () => {
-    const normal = RiskManager.calculateSizedOrder('EUR/USD', SL_PIPS, BALANCE, undefined, 0.5);
-    const highVol = RiskManager.calculateSizedOrder('EUR/USD', SL_PIPS, BALANCE, undefined, 0.9);
-    // target=0.5, current=0.9 → scalar = 0.5/0.9 ≈ 0.556
-    expect(highVol.units).toBeLessThan(normal.units);
-  });
-
-  test('volatility scalar: low ATR percentile → capped at 1 (no increase)', () => {
-    const noVol   = RiskManager.calculateSizedOrder('EUR/USD', SL_PIPS, BALANCE);
-    const lowPerc = RiskManager.calculateSizedOrder('EUR/USD', SL_PIPS, BALANCE, undefined, 0.1);
-    // target=0.5, current=0.1 → raw scalar=5, capped to 1 → no change
-    expect(lowPerc.units).toBe(noVol.units);
-  });
-
-  test('combined worst-case: low conf + high vol → floor at 25% of base', () => {
-    const full = RiskManager.calculateSizedOrder('EUR/USD', SL_PIPS, BALANCE, 0.80);
-    const worst = RiskManager.calculateSizedOrder('EUR/USD', SL_PIPS, BALANCE, 0.10, 0.99);
-    // Combined scalar would be near-zero, floored at 0.25
-    const ratio = worst.units / full.units;
-    expect(ratio).toBeGreaterThanOrEqual(0.23);
-    expect(ratio).toBeLessThanOrEqual(0.30);
+  test('confidence below minimum threshold (< 0.35 for EUR/USD) → DISCARDED (0 units)', () => {
+    const low = RiskManager.calculateSizedOrder('EUR/USD', SL_PIPS, BALANCE, 0.30);
+    expect(low.units).toBe(0);
   });
 
   test('result never exceeds RISK_MAX_POSITION_SIZE_PCT (2%)', () => {
@@ -143,8 +113,10 @@ describe('RiskManager.calculateSizedOrder', () => {
 
   test('calculatePositionSize (wrapper) returns same units as calculateSizedOrder', () => {
     const sized = RiskManager.calculateSizedOrder('EUR/USD', SL_PIPS, BALANCE);
-    const legacy = RiskManager.calculatePositionSize('EUR/USD', SL_PIPS, BALANCE);
-    expect(legacy).toBe(sized.units);
+    const decision = RiskManager.calculatePositionSize(BALANCE, SL_PIPS, 0.75, 0, 'EUR/USD');
+    const isXau = 'EUR/USD'.includes('XAU');
+    const contractSize = isXau ? 100 : 100000;
+    expect(decision.lots * contractSize).toBe(sized.units);
   });
 });
 

@@ -30,7 +30,8 @@ const envSchema = z.object({
   ML_MIN_CONFIDENCE: z.string().transform((val) => parseFloat(val)).default('0.62'),
   CORRELATION_GROUPS: z.string().transform((val) => val.split('|').map(g => g.trim())).default('USD:EUR/USD,GBP/USD,USD/JPY,AUD/USD,USD/CHF'),
   ML_SERVICE_URL: z.string().default('http://127.0.0.1:8000'),
-  ENABLED_STRATEGIES: z.string().transform((val) => val.split(',').map((s) => s.trim())).default('ma_crossover,rsi_reversion,bollinger_bands,loss_recovery,smc_liquidity,ml_signal'),
+  ENABLED_STRATEGIES: z.string().transform((val) => val.split(',').map((s) => s.trim())).default('ma_crossover,rsi_reversion,bollinger_bands,loss_recovery,smc_liquidity,ml_signal,volatility_arbitrage,grid_overlay,asian_killzone'),
+  STRATEGY_MONTHLY_LOSS_LIMIT_PCT: z.string().transform((val) => parseFloat(val)).default('-8.0'),
   TELEGRAM_BOT_TOKEN: z.string().optional(),
   TELEGRAM_CHAT_ID: z.string().optional(),
   API_SECRET_KEY: z.string().min(16, 'API_SECRET_KEY must be at least 16 characters'),
@@ -82,6 +83,19 @@ const envSchema = z.object({
   RISK_STRETCH_CAP_PCT: z.string().transform((val) => parseFloat(val)).default('2.25'),
   RISK_CUMULATIVE_OPEN_RISK_CEILING_PCT: z.string().transform((val) => parseFloat(val)).default('6.0'),
   RISK_DAILY_SOFT_TARGET_USD: z.string().transform((val) => parseFloat(val)).default('25.0'),
+
+  // Multi-Pair Expansion & Portfolio Correlation
+  MAX_PORTFOLIO_CORRELATION_SUM: z.string().transform((val) => parseFloat(val)).default('1.5'),
+  PAIR_CONFIDENCE_THRESHOLDS: z.string().transform((val) => {
+    const map: Record<string, number> = {};
+    val.split(',').forEach(item => {
+      const [pair, thresh] = item.split(':').map(s => s.trim());
+      if (pair && thresh) {
+        map[pair.replace('_', '/').toUpperCase()] = parseFloat(thresh);
+      }
+    });
+    return map;
+  }).default('EUR/USD:0.35,GBP/USD:0.35,USD/JPY:0.35,AUD/USD:0.35,USD/CHF:0.35,XAU/USD:0.35'),
 });
 
 const parsed = envSchema.safeParse(process.env);

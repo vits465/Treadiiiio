@@ -12,6 +12,7 @@ import { RsiMeanReversionStrategy } from './strategy/rsiMeanReversion';
 import { BollingerBandsStrategy } from './strategy/bollingerBands';
 import { LossRecoveryStrategy } from './strategy/lossRecovery';
 import { SmartMoneyConceptsStrategy } from './strategy/smartMoneyConcepts';
+import { AsianKillZoneStrategy } from './strategy/asianKillZone';
 import { MLClient } from './ml-client/index';
 import { RejectionLogger } from './risk/rejectionLogger';
 import { checkRuleConfirmations } from './risk/confirmations';
@@ -60,6 +61,7 @@ async function bootstrap() {
     bollinger_bands: new BollingerBandsStrategy(),
     loss_recovery: new LossRecoveryStrategy(),
     smc_liquidity: new SmartMoneyConceptsStrategy(),
+    asian_killzone: new AsianKillZoneStrategy(),
   };
 
   const enabledStrategies: Strategy[] = [];
@@ -197,8 +199,13 @@ async function bootstrap() {
             const openPositionsCount = TradingEngine.getOpenPositionsCount();
             const accountEquity = TradingEngine.getBalance() + TradingEngine.getOpenPositions().reduce((sum, p) => sum + p.unrealizedPnL, 0);
 
+            let strategyCandles = candles;
+            if (strategy.name === 'asian_killzone') {
+              strategyCandles = await PriceFeed.fetchCandles(pair, 100, '5m');
+            }
+
             const context: MarketContext = {
-              historicalCandles: candles,
+              historicalCandles: strategyCandles,
               macroCandles,
               currentQuote: quote,
               activePosition,
@@ -206,7 +213,8 @@ async function bootstrap() {
               openPositionsCount,
             };
 
-            const signal = strategy.onCandle(latestCandle, context);
+            const evalCandle = strategyCandles[strategyCandles.length - 1] || latestCandle;
+            const signal = strategy.onCandle(evalCandle, context);
 
             if (signal) {
               broadcastEvent({
@@ -219,14 +227,18 @@ async function bootstrap() {
               } else if ((signal.action === 'BUY' || signal.action === 'SELL') && !activePosition) {
                 // MTF Trend Alignment Filter
                 if ((signal.action === 'BUY' && macroTrend === 'DOWN') || (signal.action === 'SELL' && macroTrend === 'UP')) {
-                  logger.info(`[MTF FILTER] Rejected ${pair} ${signal.action} from ${strategy.name} — counter to Daily ${macroTrend} trend.`);
-                  continue; // Skip execution
+                  logger.info(`[MTF TREND WARNING] Executing ${pair} ${signal.action} from ${strategy.name} — note counter-trend to Daily ${macroTrend} trend.`);
                 }
 
                 await TradingEngine.executeOrder(
                   pair, signal.action, strategy.name, quote,
                   signal.stopLossPips, signal.takeProfitPips, signal.amountToRecover,
-                  currentAtr // pass ATR for dynamic lot sizing
+                  currentAtr, // pass ATR for dynamic lot sizing
+                  undefined,
+                  undefined,
+                  signal.requestedLots,
+                  signal.tp1Pips,
+                  signal.tp2Pips
                 );
               }
             }
@@ -275,8 +287,7 @@ async function bootstrap() {
               if (gatePass) {
                 // MTF Trend Alignment Filter for ML
                 if ((signal.action === 'BUY' && macroTrend === 'DOWN') || (signal.action === 'SELL' && macroTrend === 'UP')) {
-                  logger.info(`[MTF FILTER] Rejected ${pair} ML ${signal.action} — counter to Daily ${macroTrend} trend.`);
-                  continue; // Skip execution
+                  logger.info(`[MTF TREND WARNING] Executing ${pair} ML ${signal.action} — note counter-trend to Daily ${macroTrend} trend.`);
                 }
 
                 // Area 1: pass confidence for dynamic sizing

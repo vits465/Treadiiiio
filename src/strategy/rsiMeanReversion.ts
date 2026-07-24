@@ -6,7 +6,7 @@ export class RsiMeanReversionStrategy implements Strategy {
   private overbought: number;
   private oversold: number;
 
-  constructor(period = 14, overbought = 70, oversold = 30) {
+  constructor(period = 14, overbought = 65, oversold = 35) {
     this.period = period;
     this.overbought = overbought;
     this.oversold = oversold;

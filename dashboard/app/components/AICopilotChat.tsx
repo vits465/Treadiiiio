@@ -3,7 +3,7 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { Bot, Send, X, Sparkles, MessageSquare, ShieldCheck, Zap } from "lucide-react";
-import { getSummary, getOpenPositions, getNews, Summary, Position, NewsEvent } from "@/lib/api-client";
+import { getSummary, getOpenPositions, getNews, Summary, Position, NewsEvent } from "../../lib/api-client";
 
 interface ChatMessage {
   sender: "user" | "ai";

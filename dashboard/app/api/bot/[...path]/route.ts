@@ -6,11 +6,12 @@ export const dynamic = 'force-dynamic';
 const BOT_API_URL = (process.env.NEXT_PUBLIC_BOT_API_URL || "http://localhost:4000").trim();
 const API_KEY = (process.env.NEXT_PUBLIC_API_KEY || "a3f7c9d2e1b4f6a8c0d5e7f9b2a4c6d8").trim();
 
-// Fallback tunnels in case primary tunnel returns 503 or drops connection
+// Prioritize local bot API URL first, followed by external tunnels
 const FALLBACK_TUNNEL_URLS = [
+  BOT_API_URL,
+  "https://curvy-panther-15.loca.lt",
   "https://2dbd0045144a97bb-150-107-241-89.serveousercontent.com",
   "https://deluge-footsie-dander.ngrok-free.dev",
-  BOT_API_URL,
 ];
 
 export async function GET(req: NextRequest, { params }: { params: { path: string[] } }) {
