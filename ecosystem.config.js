@@ -1,3 +1,6 @@
+const isWin = process.platform === "win32";
+const pythonPath = isWin ? "venv/Scripts/python.exe" : "venv/bin/python";
+
 module.exports = {
   apps: [
     {
@@ -11,7 +14,7 @@ module.exports = {
     },
     {
       name: "ml-service",
-      script: "venv/Scripts/python.exe",
+      script: pythonPath,
       args: "main.py",
       cwd: "./ml-service",
       watch: false,
@@ -29,7 +32,6 @@ module.exports = {
       },
     },
     {
-      // Permanent fixed-subdomain tunnel — URL: https://treadiiiio-bot-5531.loca.lt
       name: "tunnel",
       script: "./start-tunnel.js",
       cwd: "./",
@@ -42,4 +44,5 @@ module.exports = {
     },
   ]
 };
+
 

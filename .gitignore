@@ -21,3 +21,4 @@ ml-service/venv/
 ml-service/.venv/
 __pycache__/
 *.pyc
+*.pem
