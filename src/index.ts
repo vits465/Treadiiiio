@@ -196,6 +196,14 @@ async function bootstrap() {
           }
           currentAtr = trs.reduce((a, b) => a + b, 0) / 14;
         }
+        const regimeInputs = {
+          atr20Day: currentAtr,
+          atrThresholdNormal: pair.includes('JPY') ? 0.15 : 0.0010,
+          atrThresholdVolatile: pair.includes('JPY') ? 0.30 : 0.0025,
+          rollingWinRate20Day: 0.55, // Placeholder, would come from DB
+          rollingSharpe20Day: 1.0,
+        };
+        const currentRegime = RegimeDetector.detectRegime(regimeInputs).regime;
 
         if (!TradingEngine.isPaused()) {
           for (const strategy of enabledStrategies) {
@@ -207,15 +215,6 @@ async function bootstrap() {
             if (strategy.name === 'asian_killzone') {
               strategyCandles = await PriceFeed.fetchCandles(pair, 300, '5m');
             }
-
-            const regimeInputs = {
-              atr20Day: currentAtr,
-              atrThresholdNormal: pair.includes('JPY') ? 0.15 : 0.0010,
-              atrThresholdVolatile: pair.includes('JPY') ? 0.30 : 0.0025,
-              rollingWinRate20Day: 0.55, // Placeholder, would come from DB
-              rollingSharpe20Day: 1.0,
-            };
-            const currentRegime = RegimeDetector.detectRegime(regimeInputs).regime;
 
             const context: MarketContext = {
               historicalCandles: strategyCandles,
