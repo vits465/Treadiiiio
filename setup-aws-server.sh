@@ -9,7 +9,6 @@ echo "[1/6] Installing core tools & packages..."
 sudo DEBIAN_FRONTEND=noninteractive apt-get update -y
 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y git curl python3 python3-venv python3-pip build-essential nginx ufw
 
-
 # 2. Setup 3GB Swap file (Essential for AWS EC2 t2.micro / t3.micro 1GB RAM)
 if [ ! -f /swapfile ]; then
     echo "[2/6] Creating 3GB Swap memory for Python ML XGBoost..."
