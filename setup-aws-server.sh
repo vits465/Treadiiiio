@@ -1,14 +1,14 @@
 #!/bin/bash
-set -e
 
 echo "===================================================="
 echo "   Forex Bot - AWS EC2 Free Tier Auto-Setup Script  "
 echo "===================================================="
 
 # 1. System updates & basic tools
-echo "[1/6] Updating system packages..."
-sudo apt update && sudo apt upgrade -y
-sudo apt install -y git curl python3 python3-venv python3-pip build-essential nginx ufw
+echo "[1/6] Installing core tools & packages..."
+sudo DEBIAN_FRONTEND=noninteractive apt-get update -y
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y git curl python3 python3-venv python3-pip build-essential nginx ufw
+
 
 # 2. Setup 3GB Swap file (Essential for AWS EC2 t2.micro / t3.micro 1GB RAM)
 if [ ! -f /swapfile ]; then
