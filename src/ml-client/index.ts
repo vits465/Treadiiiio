@@ -5,6 +5,7 @@ import { db } from '../db';
 import { Candle } from '../data/priceFeed';
 import { Signal, SignalAction } from '../strategy/strategy.interface';
 import { RejectionLogger } from '../risk/rejectionLogger';
+import { OnnxFallbackClient } from './onnxFallback';
 import { v4 as uuidv4 } from 'uuid';
 
 export class MLClient {
@@ -104,10 +105,23 @@ export class MLClient {
     } catch (error: any) {
       if (error.response && error.response.status === 404) {
         if (throwOn404) throw new Error('MODEL_NOT_FOUND');
-        logger.warn(`No trained ML model found for ${instrument}. Skipping ML prediction.`);
-        return null;
+        logger.warn(`No trained ML model found for ${instrument}. Falling back to local predictor.`);
+      } else {
+        logger.warn(`ML Python Service unavailable for ${instrument} (${error.message}). Invoking ONNX/Local predictor fallback.`);
       }
-      logger.error(`ML Client predict failed for ${instrument}: ${error.message}`);
+
+      // Execute local ONNX/Heuristic predictor fallback
+      const fallbackPrediction = OnnxFallbackClient.predict(instrument, candles);
+      if (fallbackPrediction.action !== 'HOLD' && fallbackPrediction.confidence >= config.ML_MIN_CONFIDENCE) {
+        return {
+          action: fallbackPrediction.action as SignalAction,
+          instrument,
+          strategy: 'ml_xgb_fallback',
+          confidence: fallbackPrediction.confidence,
+          stopLossPips: 20,
+          takeProfitPips: 40,
+        };
+      }
       return null;
     }
   }

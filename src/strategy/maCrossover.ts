@@ -1,7 +1,7 @@
 import { Strategy, Candle, MarketContext, Signal } from './strategy.interface';
 
 export class MaCrossoverStrategy implements Strategy {
-  public readonly name = 'ma_crossover_scalper';
+  public readonly name = 'ma_crossover';
   private fastPeriod: number;
   private slowPeriod: number;
 

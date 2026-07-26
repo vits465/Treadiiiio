@@ -20,14 +20,19 @@ import { checkRuleConfirmations } from './risk/confirmations';
 import { RegimeDetector } from './analytics/regimeDetector';
 import { StrategyAllocator } from './risk/strategyAllocator';
 
+import { StrategyRegistry } from './strategy/registry';
+import { RegimeRouter } from './analytics/regimeRouter';
+import { EngineScheduler } from './utils/scheduler';
+
 async function bootstrap() {
   logger.info('==================================================');
   logger.info('   Starting Forex Paper Trading Bot Engine        ');
   logger.info('==================================================');
 
-  // 1. Initialize SQLite database & trading engine
+  // 1. Initialize SQLite database & trading engine & scheduler
   initDb();
   TradingEngine.initialize();
+  EngineScheduler.initialize();
   WebSocketManager.start();
 
   // Initialize Notifier
@@ -58,26 +63,10 @@ async function bootstrap() {
     TelegramNotifier.sendMessage(`${emoji} *Trade Closed: ${trade.instrument}*\nStrategy: ${safeStrategy}\nPnL: $${trade.pnl.toFixed(2)}`);
   });
 
-  // 2. Instantiate strategies
-  const strategyInstances: Record<string, Strategy> = {
-    ma_crossover: new MaCrossoverStrategy(),
-    rsi_reversion: new RsiMeanReversionStrategy(),
-    bollinger_bands: new BollingerBandsStrategy(),
-    loss_recovery: new LossRecoveryStrategy(),
-    smc_liquidity: new SmartMoneyConceptsStrategy(),
-    asian_killzone: new AsianKillZoneStrategy(),
-  };
-
-  const enabledStrategies: Strategy[] = [];
-  for (const name of config.ENABLED_STRATEGIES) {
-    if (strategyInstances[name]) {
-      enabledStrategies.push(strategyInstances[name]);
-      logger.info(`Enabled Strategy: ${name}`);
-    } else if (name === 'ml_signal') {
-      logger.info('Enabled Strategy: ml_signal (Python microservice)');
-    } else {
-      logger.warn(`Unknown strategy in configuration: ${name}`);
-    }
+  // 2. Retrieve enabled strategies from StrategyRegistry
+  const enabledStrategies = StrategyRegistry.getEnabledStrategies(config.ENABLED_STRATEGIES);
+  for (const strat of enabledStrategies) {
+    logger.info(`Enabled Strategy from Registry: ${strat.name}`);
   }
 
   // 3. Pre-warm ML models in the BACKGROUND (non-blocking so engine starts immediately)

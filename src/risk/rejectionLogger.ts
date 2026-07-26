@@ -24,6 +24,7 @@ export type RejectionReasonCode =
   | 'CONSECUTIVE_LOSS_COOLDOWN'
   | 'DAILY_CIRCUIT_BREAKER'
   | 'CORRELATION_CAP_EXCEEDED'
+  | 'WIDE_SPREAD'
   | 'RECOVERY_DISABLED';
 
 /**

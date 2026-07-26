@@ -10,15 +10,15 @@ import { logger } from '../logger';
  */
 export function calculateKellyRiskPct(): number {
   try {
-    const defaultRisk = config.RISK_MAX_POSITION_SIZE_PCT;
+    const defaultRisk = Math.min(config.RISK_MAX_POSITION_SIZE_PCT, 2.0);
 
-    // Get last 50 closed trades
+    // Get last 50 closed trades (exit_time column name in SQLite schema)
     const rows = db.prepare(`
-      SELECT pnl FROM trades WHERE status = 'CLOSED' ORDER BY closeTime DESC LIMIT 50
+      SELECT pnl FROM trades WHERE status = 'CLOSED' ORDER BY exit_time DESC LIMIT 50
     `).all() as Array<{ pnl: number }>;
 
     if (rows.length < 10) {
-      return defaultRisk; // Not enough trades, use default risk
+      return defaultRisk; // Not enough trades, use default risk percentage (e.g. 2.0%)
     }
 
     const wins = rows.filter(r => r.pnl > 0);
@@ -32,22 +32,22 @@ export function calculateKellyRiskPct(): number {
 
     const winLossRatio = avgWin / avgLoss;
     
-    // Half-Kelly formula for safer capital preservation
-    const rawKelly = winRate - ((1 - winRate) / winLossRatio);
-    const halfKelly = rawKelly * 0.5;
+    // Half-Kelly formula for safer capital preservation (converted to percentage)
+    const rawKellyPct = (winRate - ((1 - winRate) / winLossRatio)) * 100;
+    const halfKellyPct = rawKellyPct * 0.5;
 
-    if (halfKelly <= 0) {
-      logger.info(`Kelly Criterion suggested 0% risk (WinRate: ${(winRate * 100).toFixed(1)}%). Using minimum floor 0.5%.`);
-      return 0.005; // 0.5% floor
+    if (halfKellyPct <= 0) {
+      logger.info(`Kelly Criterion suggested <= 0% risk (WinRate: ${(winRate * 100).toFixed(1)}%). Using minimum floor 0.5%.`);
+      return 0.5; // 0.5% floor
     }
 
-    // Cap between 0.5% and max config risk (e.g. 2%)
-    const finalRisk = Math.min(Math.max(halfKelly, 0.005), config.RISK_MAX_POSITION_SIZE_PCT);
-    logger.info(`Kelly Criterion calculated optimal risk: ${(finalRisk * 100).toFixed(2)}% (WinRate: ${(winRate * 100).toFixed(1)}%, W/L Ratio: ${winLossRatio.toFixed(2)})`);
+    // Cap between 0.5% and max config risk (e.g. 2.0%)
+    const finalRisk = Math.min(Math.max(halfKellyPct, 0.5), defaultRisk);
+    logger.info(`Kelly Criterion calculated optimal risk: ${finalRisk.toFixed(2)}% (WinRate: ${(winRate * 100).toFixed(1)}%, W/L Ratio: ${winLossRatio.toFixed(2)})`);
 
     return finalRisk;
   } catch (err: any) {
     logger.error(`Error calculating Kelly sizing: ${err.message}`);
-    return config.RISK_MAX_POSITION_SIZE_PCT;
+    return Math.min(config.RISK_MAX_POSITION_SIZE_PCT, 2.0);
   }
 }

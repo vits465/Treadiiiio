@@ -190,10 +190,11 @@ export class RiskManager {
     const isXau = instrument.includes('XAU');
     const pipSize = (isJpy || isXau) ? 0.01 : 0.0001;
 
-    // Use Dynamic Kelly Criterion for Base Risk Cap
+    // Use Dynamic Kelly Criterion for Base Risk Cap (kelly is returned as a percentage e.g. 1.5%)
     const kellyPct = calculateKellyRiskPct();
-    const perTradeCapPct = kellyPct * 100; // kelly is returned as a decimal e.g. 0.015
-    
+    const perTradeCapPct = Math.min(kellyPct, config.RISK_PER_TRADE_CAP_PCT, config.RISK_MAX_POSITION_SIZE_PCT);
+
+    const effectiveCap = perTradeCapPct;
     
     // Per-pair confidence threshold resolution
     const normInst = CorrelationManager.normalizeInstrument(instrument);
@@ -214,15 +215,15 @@ export class RiskManager {
       sizeTier = 'DISCARDED';
       effectiveRiskPct = 0;
     } else if (confidenceScore < normalTierThreshold) {
-      // 0.60 to 0.75 -> REDUCED tier (e.g., 60% of per-trade cap = 0.90%)
+      // REDUCED tier (e.g., 60% of per-trade cap = 0.90%)
       sizeTier = 'REDUCED';
-      effectiveRiskPct = perTradeCapPct * config.RISK_REDUCED_TIER_MULTIPLIER;
+      effectiveRiskPct = effectiveCap * config.RISK_REDUCED_TIER_MULTIPLIER;
     } else if (confidenceScore < stretchTierThreshold) {
-      // 0.75 to 0.85 -> NORMAL tier (100% of per-trade cap = 1.50%)
+      // NORMAL tier (100% of per-trade cap = 1.50%)
       sizeTier = 'NORMAL';
-      effectiveRiskPct = perTradeCapPct;
+      effectiveRiskPct = effectiveCap;
     } else {
-      // 0.85+ -> STRETCH tier (up to stretch cap 2.25%)
+      // STRETCH tier (up to stretch cap 2.25%)
       sizeTier = 'STRETCH';
       const targetStretchRisk = config.RISK_STRETCH_CAP_PCT;
 
@@ -230,12 +231,10 @@ export class RiskManager {
       const cumulativeCeiling = config.RISK_CUMULATIVE_OPEN_RISK_CEILING_PCT;
       const availableCapacity = Math.max(0, cumulativeCeiling - currentOpenRiskPct);
 
-      // Stretch cap is bounded by available capacity and config.RISK_STRETCH_CAP_PCT
       effectiveRiskPct = Math.min(targetStretchRisk, availableCapacity);
 
-      // If open risk capacity is depleted, fall back to NORMAL or REDUCED cap
-      if (effectiveRiskPct < perTradeCapPct) {
-        effectiveRiskPct = Math.min(perTradeCapPct, availableCapacity);
+      if (effectiveRiskPct < effectiveCap) {
+        effectiveRiskPct = Math.min(effectiveCap, availableCapacity);
         if (effectiveRiskPct <= 0) {
           sizeTier = 'DISCARDED';
           effectiveRiskPct = 0;
@@ -244,6 +243,10 @@ export class RiskManager {
         }
       }
     }
+
+    // Safety Invariant #1: Hard cap of 2% (RISK_MAX_POSITION_SIZE_PCT) must be strictly enforced on final risk
+    const hardCap = Math.max(config.RISK_MAX_POSITION_SIZE_PCT, config.RISK_STRETCH_CAP_PCT);
+    effectiveRiskPct = Math.min(effectiveRiskPct, hardCap);
 
     if (sizeTier === 'DISCARDED' || effectiveRiskPct <= 0) {
       const decision: SizingDecision = {
@@ -275,32 +278,17 @@ export class RiskManager {
     // Convert risk USD to position lots
     const contractSize = isXau ? 100 : 100000;
     const rawUnits = riskUsdAtStop / slDistance;
-    let rawVolume = rawUnits / contractSize;
+    const rawVolume = rawUnits / contractSize;
 
-    // Dynamic Lot Sizing Tiers (0.01, 0.02, 0.03, 0.04, 0.05 lots) based on signal confidence/conviction
-    let lotTier = 0.01;
-    if (confidenceScore >= 0.88) {
-      lotTier = 0.05;
-    } else if (confidenceScore >= 0.78) {
-      lotTier = 0.04;
-    } else if (confidenceScore >= 0.68) {
-      lotTier = 0.03;
-    } else if (confidenceScore >= 0.55) {
-      lotTier = 0.02;
-    } else {
-      lotTier = 0.01;
-    }
+    // Min lot risk budget check: 0.01 lots = 1,000 units (or 1 unit gold)
+    const minLotRiskUsd = 0.01 * contractSize * slDistance;
+    let volume = Math.floor(rawVolume * 100) / 100;
 
-    let volume = 0;
-    if (rawVolume < 0.001) {
+    // Small account protection: if 0.01 min lot risk exceeds allocated risk budget, set volume = 0
+    if (minLotRiskUsd > riskUsdAtStop * 1.05) {
       volume = 0;
-      sizeTier = 'DISCARDED';
-      effectiveRiskPct = 0;
-    } else {
-      volume = Math.max(rawVolume, lotTier);
-      volume = Math.min(volume, 0.05); // Cap at 0.05 max lot size
-      volume = Math.floor(volume * 100) / 100;
-      if (volume < 0.01) volume = 0.01;
+    } else if (volume < 0.01 && rawVolume > 0) {
+      volume = 0.01;
     }
 
     const decision: SizingDecision = {
@@ -508,6 +496,22 @@ export class RiskManager {
       consecutiveLosses: maxLosses,
       cooldownUntil: now < cooldownUntil ? cooldownUntil : null,
     };
+  }
+
+  public static checkSpreadSanity(instrument: string, currentSpreadPips: number, medianSpreadPips: number): boolean {
+    if (medianSpreadPips > 0 && currentSpreadPips > medianSpreadPips * 2.0) {
+      logger.warn(`[SPREAD GUARD] Rejected ${instrument}: Current spread ${currentSpreadPips.toFixed(1)} pips > 2x median ${medianSpreadPips.toFixed(1)} pips.`);
+      RejectionLogger.log(
+        'RiskManager.checkSpreadSanity',
+        'WIDE_SPREAD',
+        instrument,
+        undefined,
+        undefined,
+        `Current spread ${currentSpreadPips.toFixed(1)} pips > 2x median ${medianSpreadPips.toFixed(1)} pips`
+      );
+      return false;
+    }
+    return true;
   }
 
   public static checkConsecutiveLossCooldown(instrument: string, strategy?: string): boolean {

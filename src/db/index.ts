@@ -145,6 +145,26 @@ export function initDb() {
       shap_importance TEXT,
       is_active BOOLEAN DEFAULT 0
     );
+
+    CREATE TABLE IF NOT EXISTS order_transitions (
+      id TEXT PRIMARY KEY,
+      order_id TEXT NOT NULL,
+      from_state TEXT NOT NULL,
+      to_state TEXT NOT NULL,
+      timestamp TEXT NOT NULL,
+      details TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS backtest_runs (
+      id TEXT PRIMARY KEY,
+      timestamp TEXT NOT NULL,
+      strategy TEXT NOT NULL,
+      instrument TEXT NOT NULL,
+      metrics_json TEXT NOT NULL,
+      equity_curve_json TEXT,
+      wfe_score REAL,
+      monte_carlo_max_dd REAL
+    );
   `);
 
   // Create indexes for common queries

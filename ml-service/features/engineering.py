@@ -60,7 +60,7 @@ def compute_features(df: pd.DataFrame) -> pd.DataFrame:
     df.bfill(inplace=True)
     df.ffill(inplace=True)
 
-    # --- 8. Strategy Indicator Encodings ---
+    # --- 8. Strategy Indicator Encodings & Time Features ---
     close_vals = np.asarray(df['close']).squeeze()
     sma9_vals = np.asarray(df['sma_9']).squeeze()
     sma21_vals = np.asarray(df['sma_21']).squeeze()
@@ -68,7 +68,6 @@ def compute_features(df: pd.DataFrame) -> pd.DataFrame:
     bb_lower_vals = np.asarray(df['bb_lower']).squeeze()
     bb_upper_vals = np.asarray(df['bb_upper']).squeeze()
 
-    # If any is still 2D, take the first column
     if bb_lower_vals.ndim > 1: bb_lower_vals = bb_lower_vals[:, 0]
     if bb_upper_vals.ndim > 1: bb_upper_vals = bb_upper_vals[:, 0]
     if sma9_vals.ndim > 1: sma9_vals = sma9_vals[:, 0]
@@ -80,7 +79,51 @@ def compute_features(df: pd.DataFrame) -> pd.DataFrame:
     df['feat_rsi_reversion'] = np.where(rsi14_vals < 30, 1.0, np.where(rsi14_vals > 70, -1.0, 0.0))
     df['feat_bollinger_reversion'] = np.where(close_vals < bb_lower_vals, 1.0, np.where(close_vals > bb_upper_vals, -1.0, 0.0))
     
+    # Time & Session Features
+    if 'time' in df.columns:
+        hours = df['time'].dt.hour
+        df['hour_of_day'] = hours
+        df['day_of_week'] = df['time'].dt.dayofweek
+        df['is_london'] = ((hours >= 7) & (hours < 16)).astype(float)
+        df['is_ny'] = ((hours >= 13) & (hours < 21)).astype(float)
+        df['is_asian'] = ((hours >= 0) & (hours < 9)).astype(float)
+
     # Drop duplicate columns to prevent DataFrame indexing issues in XGBoost
     df = df.loc[:, ~df.columns.duplicated()]
 
     return df
+
+def compute_triple_barrier_labels(df: pd.DataFrame, sl_mult: float = 1.5, tp_mult: float = 3.0, holding_period: int = 20) -> pd.Series:
+    """
+    Computes Triple-Barrier Method labels matching actual engine SL/TP multipliers:
+      - 1: TP barrier hit first (BUY win)
+      - 0: SL barrier hit first or time expiry loss
+    """
+    labels = np.zeros(len(df), dtype=int)
+    closes = df['close'].values
+    highs = df['high'].values
+    lows = df['low'].values
+    atrs = df['atr_14'].values if 'atr_14' in df.columns else (highs - lows)
+
+    n = len(df)
+    for i in range(n - 1):
+        entry_price = closes[i]
+        atr = atrs[i] if atrs[i] > 0 else (entry_price * 0.001)
+        tp_barrier = entry_price + atr * tp_mult
+        sl_barrier = entry_price - atr * sl_mult
+
+        max_look = min(i + 1 + holding_period, n)
+        label = 0
+        for j in range(i + 1, max_look):
+            # Check TP hit
+            if highs[j] >= tp_barrier:
+                label = 1
+                break
+            # Check SL hit
+            if lows[j] <= sl_barrier:
+                label = 0
+                break
+        labels[i] = label
+
+    return pd.Series(labels, index=df.index, name='target')
+

@@ -22,7 +22,7 @@ describe('RiskManager — Risk-Capped Adaptive Position Sizing Module', () => {
       // For $100 equity, 1.5% risk = $1.50. 15 pips SL on 1,000 units (0.01 lot) = $1.50
       const result = RiskManager.calculatePositionSize(100, 15, 0.75, 0, 'EUR/USD');
       expect(result.riskUsdAtStop).toBe(1.50);
-      expect(result.lots).toBe(0.03);
+      expect(result.lots).toBe(0.01);
     });
   });
 

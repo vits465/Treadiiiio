@@ -917,6 +917,34 @@ app.get('/api/risk/correlation', (req, res) => {
   }
 });
 
+import { EventDrivenBacktestEngine } from '../backtest/engine';
+import { StrategyRegistry } from '../strategy/registry';
+
+app.post('/api/backtest/run', async (req, res) => {
+  try {
+    const { strategyName, instrument, days } = req.body;
+    const strat = StrategyRegistry.get(strategyName || 'ma_crossover') || StrategyRegistry.getAll()[0];
+    const pair = instrument || 'EUR/USD';
+    const lookback = days ? parseInt(days, 10) : 30;
+
+    const candles = await PriceFeed.fetchCandles(pair, lookback * 24, config.CANDLE_GRANULARITY);
+    const result = EventDrivenBacktestEngine.runBacktest(strat, candles, {
+      startingBalance: config.STARTING_BALANCE,
+      spreadPips: config.SPREAD_PIPS,
+    });
+
+    res.json({
+      strategy: strat.name,
+      instrument: pair,
+      metrics: result.metrics,
+      tradesCount: result.trades.length,
+      equityCurve: result.equityCurve.slice(-50),
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/api/risk/strategy-allocations', (req, res) => {
   try {
     const balance = TradingEngine.getBalance();

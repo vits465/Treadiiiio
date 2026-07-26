@@ -149,7 +149,8 @@ export class TelegramNotifier {
       
       else if (text === '/config') {
         try {
-          const msg = `⚙️ *System Configuration*\n\nTarget Profit: $${config.RISK_DAILY_PROFIT_TARGET_USD}\nTake Profit: $${config.RISK_TRADE_TAKE_PROFIT_USD}\nMax Drawdown: ${config.RISK_MAX_DRAWDOWN_PCT}%\nSlippage Alert: ${config.ALERT_SLIPPAGE_PIPS} pips\nSimulator Mode: ${config.USE_SIMULATOR}\n\nStrategies:\n${config.ENABLED_STRATEGIES.join(', ')}`;
+          const strats = config.ENABLED_STRATEGIES.map(s => s.replace(/_/g, '\\_')).join(', ');
+          const msg = `⚙️ *System Configuration*\n\nTarget Profit: $${config.RISK_DAILY_PROFIT_TARGET_USD}\nTake Profit: $${config.RISK_TRADE_TAKE_PROFIT_USD}\nMax Drawdown: ${config.RISK_MAX_DRAWDOWN_PCT}%\nSlippage Alert: ${config.ALERT_SLIPPAGE_PIPS} pips\nSimulator Mode: ${config.USE_SIMULATOR}\n\nStrategies:\n${strats}`;
           await this.sendMessage(msg);
         } catch (err: any) {
           await this.sendMessage('⚠ Error fetching config: ' + err.message);

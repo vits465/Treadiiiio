@@ -24,6 +24,17 @@ export class TradingEngine {
     return this.paused;
   }
 
+  public static recordOrderTransition(orderId: string, fromState: string, toState: string, details?: string): void {
+    try {
+      db.prepare(`
+        INSERT INTO order_transitions (id, order_id, from_state, to_state, timestamp, details)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(uuidv4(), orderId, fromState, toState, new Date().toISOString(), details || null);
+    } catch (err) {
+      logger.debug(`Failed to record order transition for ${orderId}: ${err}`);
+    }
+  }
+
   public static setPaused(state: boolean) {
     this.paused = state;
     logger.info(`Trading Engine ${state ? 'PAUSED' : 'RESUMED'} by user.`);

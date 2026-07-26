@@ -97,6 +97,16 @@ const envSchema = z.object({
     });
     return map;
   }).default('EUR/USD:0.35,GBP/USD:0.35,USD/JPY:0.35,AUD/USD:0.35,USD/CHF:0.35,XAU/USD:0.35'),
+
+  // Phase 2 Upgrade: Power Breakout & Scalper 1m Parameters
+  POWER_DONCHIAN_PERIOD: z.string().transform((val) => parseInt(val, 10)).default('20'),
+  POWER_ADX_MIN: z.string().transform((val) => parseFloat(val)).default('25.0'),
+  POWER_ATR_EXPANSION_RATIO: z.string().transform((val) => parseFloat(val)).default('1.2'),
+  SCALPER_TP_PIPS: z.string().transform((val) => parseFloat(val)).default('6.0'),
+  SCALPER_SL_PIPS: z.string().transform((val) => parseFloat(val)).default('6.0'),
+  SCALPER_MAX_SPREAD_RATIO: z.string().transform((val) => parseFloat(val)).default('0.25'),
+  SCALPER_TIME_STOP_MINUTES: z.string().transform((val) => parseInt(val, 10)).default('15'),
+  SCALPER_MAX_TRADES_PER_HOUR: z.string().transform((val) => parseInt(val, 10)).default('3'),
 });
 
 const parsed = envSchema.safeParse(process.env);
