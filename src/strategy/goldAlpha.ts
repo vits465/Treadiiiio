@@ -37,8 +37,8 @@ export class GoldAlphaStrategy implements Strategy {
     // ADX(14) Trend Strength Filter — 50-year veteran rule: Avoid choppy, sideways markets!
     const { RegimeRouter } = require('../analytics/regimeRouter');
     const adx = RegimeRouter.calculateADX(candles, 14);
-    if (adx < 22) {
-      return null; // Market is ranging/choppy (ADX < 22). Master trader sits on hands.
+    if (adx < 18) {
+      return null; // Market is ranging/choppy (ADX < 18).
     }
 
     // EMA 200 Macro Trend
