@@ -8,6 +8,9 @@ export class WebSocketManager {
   private static pingInterval: NodeJS.Timeout | null = null;
   private static activeInstruments: string[] = ['EUR/USD', 'GBP/USD', 'USD/JPY', 'XAU/USD'];
 
+  private static reconnectAttempts = 0;
+  private static maxReconnectAttempts = 3;
+
   public static async start(): Promise<void> {
     if (config.USE_SIMULATOR && !config.USE_REAL_PRICES) {
       logger.info('Using Simulated WebSocket feed for ultra-fast ticking');
@@ -15,15 +18,18 @@ export class WebSocketManager {
       return;
     }
 
-    // Defaulting to Polygon.io Forex WebSocket as a placeholder
-    // User can change the URL / Auth based on their final provider
     const wsUrl = process.env.WS_PROVIDER_URL || 'wss://socket.polygon.io/forex';
     const apiKey = process.env.MASSIVE_API_KEY || 'RPlbk0FN2femlRAfRNE_SafThj2x3TYj';
     
+    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+      return;
+    }
+
     logger.info(`Connecting to WebSocket feed at ${wsUrl}...`);
     this.ws = new WebSocket(wsUrl);
 
     this.ws.on('open', () => {
+      this.reconnectAttempts = 0;
       logger.info('WebSocket Connected');
       // Polygon Auth example
       this.ws?.send(JSON.stringify({ action: 'auth', params: apiKey }));
@@ -64,9 +70,14 @@ export class WebSocketManager {
     });
 
     this.ws.on('close', () => {
-      logger.warn('WebSocket Disconnected. Reconnecting in 5s...');
       if (this.pingInterval) clearInterval(this.pingInterval);
-      setTimeout(() => this.start(), 5000);
+      this.reconnectAttempts++;
+      if (this.reconnectAttempts <= this.maxReconnectAttempts) {
+        logger.warn(`WebSocket Disconnected. Reconnecting (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts}) in 10s...`);
+        setTimeout(() => this.start(), 10000);
+      } else {
+        logger.info('WebSocket feed disconnected. Retaining REST PriceFeed (Massive/GoldAPI/TwelveData) for live quotes.');
+      }
     });
 
     this.ws.on('error', (err) => {

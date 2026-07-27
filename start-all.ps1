@@ -7,15 +7,9 @@ Write-Host "=============================" -ForegroundColor Cyan
 Write-Host " Trading Bot Full Restart    " -ForegroundColor Cyan
 Write-Host "=============================" -ForegroundColor Cyan
 
-# 1. Kill all existing node/python processes
-Write-Host "[1/6] Clearing zombie processes..." -ForegroundColor Yellow
-Stop-Process -Name "node" -Force -ErrorAction SilentlyContinue
-Stop-Process -Name "python" -Force -ErrorAction SilentlyContinue
-Start-Sleep -Seconds 2
-
-# 2. Kill any pm2 daemon
-Write-Host "[2/6] Stopping PM2 daemon..." -ForegroundColor Yellow
-pm2 kill 2>$null
+# 1. Clean up existing PM2 processes
+Write-Host "[1/6] Cleaning up old PM2 tasks..." -ForegroundColor Yellow
+pm2 delete all 2>$null
 Start-Sleep -Seconds 2
 
 # 3. Build TypeScript

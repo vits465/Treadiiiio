@@ -56,7 +56,7 @@ export default function ModelMonitorPage() {
     }
   };
 
-  const currencyPairs = ['EUR_USD', 'GBP_USD', 'USD_JPY'];
+  const currencyPairs = ['XAU_USD', 'EUR_USD', 'GBP_USD', 'USD_JPY'];
 
   return (
     <div className="space-y-6">

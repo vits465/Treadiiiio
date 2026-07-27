@@ -88,7 +88,8 @@ export class NewsFilter {
         logger.info(`Fetched and cached ${this.cachedEvents.length} news events from ForexFactory.`);
       }
     } catch (error) {
-      logger.error(`Error fetching ForexFactory calendar: ${error}`);
+      this.lastFetchTime = Date.now();
+      logger.warn(`ForexFactory calendar temporarily unavailable (will retry next hour): ${error}`);
     }
   }
 

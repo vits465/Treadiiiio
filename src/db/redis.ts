@@ -4,17 +4,21 @@ import { logger } from '../logger';
 class RedisManager {
   private static instance: RedisClientType | null = null;
   private static isConnecting = false;
+  private static isUnavailable = false;
 
   public static async getClient(): Promise<RedisClientType | null> {
+    if (this.isUnavailable) {
+      return null;
+    }
+
     if (this.instance) {
       return this.instance;
     }
 
     if (this.isConnecting) {
-      // Simple wait loop if another call is currently connecting
       let retries = 0;
       while (this.isConnecting && retries < 10) {
-        await new Promise(resolve => setTimeout(resolve, 500));
+        await new Promise(resolve => setTimeout(resolve, 200));
         retries++;
       }
       return this.instance;
@@ -23,9 +27,20 @@ class RedisManager {
     this.isConnecting = true;
     try {
       const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
-      const client = createClient({ url: redisUrl });
+      const client = createClient({
+        url: redisUrl,
+        socket: {
+          reconnectStrategy: false,
+          connectTimeout: 2000,
+        }
+      });
 
-      client.on('error', (err) => logger.warn(`Redis Client Error: ${err}`));
+      client.on('error', (err) => {
+        if (!this.isUnavailable) {
+          logger.debug(`Redis Client Error: ${err}`);
+        }
+      });
+
       client.on('connect', () => logger.info('Redis Client Connected'));
 
       await client.connect();
@@ -34,7 +49,8 @@ class RedisManager {
       return this.instance;
     } catch (err) {
       this.isConnecting = false;
-      logger.warn(`Could not connect to Redis. Will fallback to in-memory caching. Error: ${err}`);
+      this.isUnavailable = true;
+      logger.info('Redis not detected on localhost — using fast in-memory caching fallback.');
       return null;
     }
   }

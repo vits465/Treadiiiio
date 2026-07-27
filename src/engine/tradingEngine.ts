@@ -45,6 +45,9 @@ export class TradingEngine {
    * Also restores peak equity from historical snapshots.
    */
   public static initialize() {
+    this.paused = false;
+    RiskManager.resetDailyCircuitBreaker();
+
     const row = db.prepare(`
       SELECT SUM(pnl) as totalPnL
       FROM trades
@@ -646,8 +649,11 @@ export class TradingEngine {
       FROM equity_snapshots
     `).get() as { peak: number | null };
 
-    const peak = Math.max(row?.peak || config.STARTING_BALANCE, equity);
-    const drawdown = peak > 0 ? ((peak - equity) / peak) * 100 : 0;
+    const dbPeak = row?.peak || 0;
+    const validDbPeak = dbPeak <= this.balance * 2.5 ? dbPeak : 0;
+    const peak = Math.max(validDbPeak, this.peakEquity, equity);
+    this.peakEquity = peak;
+    const drawdown = peak > 0 ? Math.max(0, ((peak - equity) / peak) * 100) : 0;
 
     db.prepare(`
       INSERT OR REPLACE INTO equity_snapshots (time, balance, equity, unrealized_pnl, drawdown)
@@ -655,6 +661,103 @@ export class TradingEngine {
     `).run(time, this.balance, equity, unrealizedPnL, drawdown);
 
     engineEvents.emit('equity_tick', { balance: this.balance, equity, timestamp: time });
+  }
+
+  /**
+   * Resets all trade history, equity snapshots, and risk circuit breakers to start fresh.
+   */
+  public static resetDataAndTarget(): void {
+    try {
+      db.prepare('DELETE FROM trades').run();
+      db.prepare('DELETE FROM positions').run();
+      db.prepare('DELETE FROM equity_snapshots').run();
+      db.prepare('DELETE FROM order_transitions').run();
+      db.prepare('DELETE FROM filter_rejections').run();
+      db.prepare('DELETE FROM ml_confidence_log').run();
+
+      const startBalance = config.STARTING_BALANCE;
+      this.balance = startBalance;
+      this.peakEquity = startBalance;
+      RiskManager.resetDailyCircuitBreaker();
+
+      this.saveEquitySnapshot(0);
+      logger.info('Trading Engine & Database reset completely to clean initial state.');
+    } catch (err: any) {
+      logger.error(`Failed to reset Trading Engine data: ${err.message}`);
+    }
+  }
+
+  /**
+   * Synchronizes balance, equity, and open positions from broker (MT5) when USE_SIMULATOR=false.
+   */
+  public static async syncWithBroker(): Promise<void> {
+    if (config.USE_SIMULATOR) return;
+    try {
+      const acc = await MT5Client.getAccountInfo();
+      if (acc && acc.balance > 0) {
+        this.balance = acc.balance;
+        if (this.peakEquity < acc.equity || this.peakEquity > acc.balance * 3) {
+          this.peakEquity = acc.equity;
+        }
+      }
+
+      const mt5Positions = await MT5Client.getPositions();
+      if (Array.isArray(mt5Positions)) {
+        const dbPositions = this.getOpenPositions();
+        const mt5OrderIds = new Set(mt5Positions.map(p => p.order_id));
+
+        // 1. Reconcile positions in DB that are no longer in MT5
+        for (const dbPos of dbPositions) {
+          if ((dbPos as any).brokerOrderId && !mt5OrderIds.has((dbPos as any).brokerOrderId)) {
+            logger.info(`Position ${dbPos.id} (MT5 Order: ${(dbPos as any).brokerOrderId}) closed on MT5. Updating DB.`);
+            db.prepare(`
+              INSERT INTO trades (id, instrument, action, entry_time, exit_time, entry_price, exit_price, units, pnl, strategy, status)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'CLOSED')
+            `).run(
+              dbPos.id, dbPos.instrument, dbPos.action, dbPos.entryTime, new Date().toISOString(),
+              dbPos.entryPrice, dbPos.entryPrice, dbPos.units, dbPos.unrealizedPnL, dbPos.strategy
+            );
+            db.prepare(`DELETE FROM positions WHERE id = ?`).run(dbPos.id);
+          }
+        }
+
+        // 2. Sync MT5 positions into DB
+        for (const mt5Pos of mt5Positions) {
+          const instrumentMapped = mt5Pos.instrument.includes('XAU') ? 'XAU/USD' :
+                                  mt5Pos.instrument.includes('EUR') ? 'EUR/USD' :
+                                  mt5Pos.instrument.includes('GBP') ? 'GBP/USD' :
+                                  mt5Pos.instrument.includes('JPY') ? 'USD/JPY' : mt5Pos.instrument;
+
+          const isXau = instrumentMapped.includes('XAU');
+          const units = mt5Pos.volume * (isXau ? 100 : 100000);
+          
+          const existing = db.prepare(`SELECT id FROM positions WHERE broker_order_id = ?`).get(mt5Pos.order_id) as any;
+          if (!existing) {
+            const posId = uuidv4();
+            const openTime = new Date(mt5Pos.time * 1000).toISOString();
+            db.prepare(`
+              INSERT INTO positions (
+                id, instrument, action, entry_time, entry_price, units, 
+                unrealized_pnl, stop_loss, take_profit, strategy, broker_order_id,
+                initial_units, partial_booked, partial_tp_hit, max_favorable_price
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'mt5_live', ?, ?, 0, 0, ?)
+            `).run(
+              posId, instrumentMapped, mt5Pos.action, openTime, mt5Pos.price_open,
+              units, mt5Pos.profit, mt5Pos.sl || null, mt5Pos.tp || null,
+              mt5Pos.order_id, units, mt5Pos.price_open
+            );
+          } else {
+            db.prepare(`
+              UPDATE positions 
+              SET unrealized_pnl = ?, entry_price = ?
+              WHERE broker_order_id = ?
+            `).run(mt5Pos.profit, mt5Pos.price_open, mt5Pos.order_id);
+          }
+        }
+      }
+    } catch (err) {
+      logger.debug(`[MT5] Failed to sync broker balance: ${err}`);
+    }
   }
 
   /**

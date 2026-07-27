@@ -2,12 +2,14 @@ import uvicorn
 import os
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+
 class Settings(BaseSettings):
     host: str = "127.0.0.1"
     port: int = 8000
     db_path: str = "../forex_bot.db"
     
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(env_file=env_path, env_file_encoding="utf-8", extra="ignore")
 
 settings = Settings()
 

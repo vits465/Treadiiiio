@@ -4,6 +4,7 @@ import { logger } from '../logger';
 import { config } from '../config';
 import { RiskManager } from '../risk/riskManager';
 import { RejectionLogger } from '../risk/rejectionLogger';
+import { computeAtr } from '../risk/volatility';
 
 /**
  * LossRecoveryStrategy — Realistic Edge Edition
@@ -79,26 +80,43 @@ export class LossRecoveryStrategy implements Strategy {
     if (attempts >= 2) return null;
 
     // ------------------------------------------------------------------
-    // 3. Entry signal — short-term RSI(7) for faster reaction
+    // 3. Entry signal — short-term RSI(7) for high-probability mean reversion
     // ------------------------------------------------------------------
-    const closes = context.historicalCandles.map((c) => c.close);
+    const candles = context.historicalCandles;
+    const closes = candles.map((c) => c.close);
     const rsi = this.calculateRSI(closes, 7);
     const currentRsi = rsi[rsi.length - 1];
 
+    const isXau = instrument.includes('XAU');
+    const isJpy = instrument.includes('JPY');
+    const pipSize = (isXau || isJpy) ? 0.01 : 0.0001;
+
+    // Dynamic ATR TP & SL (2.0x ATR TP, 1.2x ATR SL -> 1.67:1 RRR)
+    const atrs = computeAtr(candles, 14);
+    const currentAtr = atrs[atrs.length - 1];
+    const defaultAtr = isXau ? 8.0 : isJpy ? 0.35 : 0.0020;
+    const effectiveAtr = currentAtr && currentAtr > 0 ? currentAtr : defaultAtr;
+
+    const stopLossPips = Math.max(12, Math.round((effectiveAtr * 1.2) / pipSize));
+    const takeProfitPips = Math.max(20, Math.round((effectiveAtr * 2.0) / pipSize));
+
     let action: 'BUY' | 'SELL' | null = null;
-    if (currentRsi < 42) action = 'BUY';   // Bullish bounce opportunity to recover loss
-    else if (currentRsi > 58) action = 'SELL'; // Bearish bounce opportunity to recover loss
+    if (currentRsi < 32) action = 'BUY';   // High-probability oversold bounce to recover loss
+    else if (currentRsi > 68) action = 'SELL'; // High-probability overbought rejection to recover loss
 
     if (action) {
       logger.info(
         `[${this.name}] ${instrument} triggering recovery attempt ${attempts + 1}/2 ` +
-        `for a $${lossAmount.toFixed(2)} loss. RSI=${currentRsi.toFixed(1)}`
+        `for a $${lossAmount.toFixed(2)} loss. RSI=${currentRsi.toFixed(1)}, SL=${stopLossPips} pips, TP=${takeProfitPips} pips`
       );
 
       return {
         action,
         instrument,
         strategy: this.name,
+        confidence: 0.85,
+        stopLossPips,
+        takeProfitPips,
         amountToRecover: lossAmount,
       };
     }

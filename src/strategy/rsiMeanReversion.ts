@@ -1,4 +1,5 @@
 import { Strategy, Candle, MarketContext, Signal } from './strategy.interface';
+import { computeAtr } from '../risk/volatility';
 
 export class RsiMeanReversionStrategy implements Strategy {
   public readonly name = 'rsi_reversion';
@@ -6,7 +7,7 @@ export class RsiMeanReversionStrategy implements Strategy {
   private overbought: number;
   private oversold: number;
 
-  constructor(period = 14, overbought = 65, oversold = 35) {
+  constructor(period = 14, overbought = 68, oversold = 32) {
     this.period = period;
     this.overbought = overbought;
     this.oversold = oversold;
@@ -62,6 +63,18 @@ export class RsiMeanReversionStrategy implements Strategy {
     const rsiPrev = rsiValues[rsiValues.length - 2];
     const rsiCurr = rsiValues[rsiValues.length - 1];
     const instrument = candle.instrument;
+    const isXau = instrument.includes('XAU');
+    const isJpy = instrument.includes('JPY');
+    const pipSize = (isXau || isJpy) ? 0.01 : 0.0001;
+
+    // Dynamic ATR TP & SL (2.0x ATR TP, 1.2x ATR SL)
+    const atrs = computeAtr(candles, 14);
+    const currentAtr = atrs[atrs.length - 1];
+    const defaultAtr = isXau ? 8.0 : isJpy ? 0.35 : 0.0020;
+    const effectiveAtr = currentAtr && currentAtr > 0 ? currentAtr : defaultAtr;
+
+    const stopLossPips = Math.max(12, Math.round((effectiveAtr * 1.2) / pipSize));
+    const takeProfitPips = Math.max(20, Math.round((effectiveAtr * 2.0) / pipSize));
 
     // Multi-Timeframe Trend Filter
     let dailyTrend: 'UP' | 'DOWN' | 'FLAT' = 'FLAT';
@@ -80,14 +93,14 @@ export class RsiMeanReversionStrategy implements Strategy {
       }
       if (!context.activePosition) {
         const isDeepOversold = rsiPrev <= 25;
-        const confidence = isDeepOversold ? 0.82 : 0.65;
+        const confidence = isDeepOversold ? 0.85 : 0.72;
         return { 
           action: 'BUY', 
           instrument, 
           strategy: this.name, 
           confidence,
-          stopLossPips: 20, 
-          takeProfitPips: 35 
+          stopLossPips, 
+          takeProfitPips 
         };
       }
     }
@@ -99,14 +112,14 @@ export class RsiMeanReversionStrategy implements Strategy {
       }
       if (!context.activePosition) {
         const isDeepOverbought = rsiPrev >= 75;
-        const confidence = isDeepOverbought ? 0.82 : 0.65;
+        const confidence = isDeepOverbought ? 0.85 : 0.72;
         return { 
           action: 'SELL', 
           instrument, 
           strategy: this.name, 
           confidence,
-          stopLossPips: 20, 
-          takeProfitPips: 35 
+          stopLossPips, 
+          takeProfitPips 
         };
       }
     }

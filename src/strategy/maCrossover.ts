@@ -1,11 +1,12 @@
 import { Strategy, Candle, MarketContext, Signal } from './strategy.interface';
+import { computeAtr } from '../risk/volatility';
 
 export class MaCrossoverStrategy implements Strategy {
   public readonly name = 'ma_crossover';
   private fastPeriod: number;
   private slowPeriod: number;
 
-  constructor(fastPeriod = 3, slowPeriod = 8) {
+  constructor(fastPeriod = 9, slowPeriod = 21) {
     this.fastPeriod = fastPeriod;
     this.slowPeriod = slowPeriod;
   }
@@ -28,6 +29,18 @@ export class MaCrossoverStrategy implements Strategy {
     }
 
     const instrument = candle.instrument;
+    const isXau = instrument.includes('XAU');
+    const isJpy = instrument.includes('JPY');
+    const pipSize = (isXau || isJpy) ? 0.01 : 0.0001;
+
+    // Dynamic ATR-based Stop Loss & Take Profit (1:1.67 RRR)
+    const atrs = computeAtr(candles, 14);
+    const currentAtr = atrs[atrs.length - 1];
+    const defaultAtr = isXau ? 8.0 : isJpy ? 0.35 : 0.0020;
+    const effectiveAtr = currentAtr && currentAtr > 0 ? currentAtr : defaultAtr;
+
+    const stopLossPips = Math.max(15, Math.round((effectiveAtr * 1.5) / pipSize));
+    const takeProfitPips = Math.max(25, Math.round((effectiveAtr * 2.5) / pipSize));
     
     // Multi-Timeframe Trend Filter
     let dailyTrend: 'UP' | 'DOWN' | 'FLAT' = 'FLAT';
@@ -39,17 +52,13 @@ export class MaCrossoverStrategy implements Strategy {
       }
     }
 
-    // Professional Risk Management (1:2 RRR)
-    const stopLossPips = 20;
-    const takeProfitPips = 40;
-
     // Crossover Up -> BUY
     if (fastPrev <= slowPrev && fastCurr > slowCurr) {
       if (context.activePosition?.action === 'SELL') {
         return { action: 'CLOSE', instrument, strategy: this.name };
       }
       if (!context.activePosition) {
-        const confidence = dailyTrend === 'UP' ? 0.78 : 0.60;
+        const confidence = dailyTrend === 'UP' ? 0.82 : 0.68;
         return { 
           action: 'BUY', 
           instrument, 
@@ -67,7 +76,7 @@ export class MaCrossoverStrategy implements Strategy {
         return { action: 'CLOSE', instrument, strategy: this.name };
       }
       if (!context.activePosition) {
-        const confidence = dailyTrend === 'DOWN' ? 0.78 : 0.60;
+        const confidence = dailyTrend === 'DOWN' ? 0.82 : 0.68;
         return { 
           action: 'SELL', 
           instrument, 

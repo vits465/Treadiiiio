@@ -13,6 +13,7 @@ import {
   getRiskStatus,
   startBot,
   pauseBot,
+  resetBotData,
   Summary, 
   Position, 
   EquitySnapshot,
@@ -190,9 +191,24 @@ export default function OverviewPage() {
     };
   }, []);
 
+  const handleResetData = async () => {
+    if (!window.confirm("Are you sure you want to reset all test trade history, equity snapshots, and daily profit targets? This will clear stale test data and start fresh.")) return;
+    setLoading(true);
+    try {
+      await resetBotData();
+      await fetchAllData();
+      alert("✅ Trading history, equity snapshots & Daily Profit Target reset successfully!");
+    } catch (e: any) {
+      console.error(e);
+      alert("Failed to reset data: " + e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const activeUnrealized = positions.reduce((acc, pos) => acc + pos.unrealizedPnl, 0);
   const latestSnapshot = equityHistory[equityHistory.length - 1];
-  const balance = latestSnapshot ? latestSnapshot.balance : 100000;
+  const balance = latestSnapshot ? latestSnapshot.balance : 150;
   const equity = balance + activeUnrealized;
 
   const stats = [
@@ -212,9 +228,19 @@ export default function OverviewPage() {
           <h2 className="text-4xl font-extrabold tracking-tight premium-gradient-text drop-shadow-md">Command Center</h2>
           <p className="text-slate-400 text-sm font-medium mt-1">Institutional-grade monitoring, live AI predictions, and active equity tracking.</p>
         </div>
-        <div className="flex items-center space-x-2 text-xs font-bold text-cyan-400 bg-cyan-950/30 border border-cyan-500/20 px-4 py-2 rounded-xl backdrop-blur-md font-mono">
-          <Clock className="h-4 w-4" />
-          <span>Sync: {new Date().toLocaleTimeString()}</span>
+        <div className="flex items-center space-x-3">
+          <button
+            onClick={handleResetData}
+            className="px-3 py-2 text-xs font-bold text-rose-400 hover:text-rose-300 bg-rose-950/40 hover:bg-rose-900/50 border border-rose-500/30 rounded-xl transition-all shadow-sm flex items-center space-x-1.5"
+            title="Clear old test trade records & reset daily profit target"
+          >
+            <XCircle className="h-4 w-4" />
+            <span>Reset Data & Daily Target</span>
+          </button>
+          <div className="flex items-center space-x-2 text-xs font-bold text-cyan-400 bg-cyan-950/30 border border-cyan-500/20 px-4 py-2 rounded-xl backdrop-blur-md font-mono">
+            <Clock className="h-4 w-4" />
+            <span>Sync: {new Date().toLocaleTimeString()}</span>
+          </div>
         </div>
       </motion.div>
 

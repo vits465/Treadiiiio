@@ -310,6 +310,7 @@ export const pauseBot = () => apiFetch<{ paused: boolean }>("/api/bot/pause", { 
 export const startBot = () => apiFetch<{ paused: boolean }>("/api/bot/start", { method: "POST" });
 export const restartBot = () => apiFetch<{ restarting: boolean }>("/api/bot/restart", { method: "POST" });
 export const killBot = () => apiFetch<{ killed: boolean; closedCount: number }>("/api/bot/kill", { method: "POST" });
+export const resetBotData = () => apiFetch<{ success: boolean; message: string }>("/api/bot/reset-data", { method: "POST" });
 
 export const executeManualTrade = (instrument: string, action: 'BUY'|'SELL', stopLoss?: number, takeProfit?: number) => 
   apiFetch<{ success: boolean; orderId: string }>("/api/trade/execute", {

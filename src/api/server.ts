@@ -218,8 +218,9 @@ export function broadcastEvent(event: { type: string; data: any }) {
 }
 
 // REST Endpoints
-app.get('/api/status', (req, res) => {
+app.get('/api/status', async (req, res) => {
   try {
+    await TradingEngine.syncWithBroker();
     const openPositions = TradingEngine.getOpenPositions();
     const unrealizedPnL = openPositions.reduce((acc, pos) => acc + pos.unrealizedPnL, 0);
     const balance = TradingEngine.getBalance();
@@ -438,8 +439,9 @@ app.patch('/api/strategies/:name', (req, res) => {
 });
 
 // Risk configuration endpoint
-app.get('/api/risk-status', (req, res) => {
+app.get('/api/risk-status', async (req, res) => {
   try {
+    await TradingEngine.syncWithBroker();
     const openCount = TradingEngine.getOpenPositionsCount();
     const openPositions = TradingEngine.getOpenPositions();
     const unrealized = openPositions.reduce((acc, pos) => acc + pos.unrealizedPnL, 0);
@@ -592,6 +594,12 @@ app.post('/api/bot/reset-target', (req, res) => {
   res.json({ success: true, message: 'Daily target and circuit breaker reset successfully' });
 });
 
+app.post('/api/bot/reset-data', (req, res) => {
+  TradingEngine.resetDataAndTarget();
+  logger.info('Full trading data & daily profit target reset via API.');
+  res.json({ success: true, message: 'Trading history, equity snapshots & daily target reset successfully' });
+});
+
 // Kill Switch — pause AND flatten all open positions
 app.post('/api/bot/kill', async (req, res) => {
   try {
@@ -621,7 +629,10 @@ app.post('/api/trade/execute', tradeRateLimiter, async (req, res) => {
     const quote = PriceFeed.getLatestQuote(instrument);
     if (!quote) return res.status(400).json({ error: 'No live quote available for instrument.' });
     
-    const orderId = await TradingEngine.executeOrder(instrument, action, 'manual', quote, stopLoss, takeProfit);
+    const orderId = await TradingEngine.executeOrder(
+      instrument, action, 'manual', quote, stopLoss, takeProfit,
+      undefined, undefined, 0.85
+    );
     if (orderId) {
       res.json({ success: true, orderId });
     } else {

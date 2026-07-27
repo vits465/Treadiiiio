@@ -1,15 +1,18 @@
 import { initDb, db } from '../src/db';
+import { config } from '../src/config';
 import { TradingEngine } from '../src/engine/tradingEngine';
 import { Quote } from '../src/data/priceFeed';
 
 describe('Partial Profit & 1:2 / 1:3 RRR System', () => {
   beforeAll(() => {
     process.env.DB_PATH = ':memory:';
+    config.TRADING_SESSIONS = ['ASIAN', 'LONDON', 'NY'];
     initDb();
     TradingEngine.initialize();
   });
 
   beforeEach(() => {
+    config.TRADING_SESSIONS = ['ASIAN', 'LONDON', 'NY'];
     db.prepare('DELETE FROM positions').run();
     db.prepare('DELETE FROM trades').run();
   });

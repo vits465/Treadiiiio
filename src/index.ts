@@ -132,6 +132,7 @@ async function bootstrap() {
       }
 
       logger.debug('Polling market price quotes...');
+      await TradingEngine.syncWithBroker();
       const quotes = await PriceFeed.fetchLatestQuotes(config.CURRENCY_PAIRS);
 
       // A. Update open positions and evaluate stop loss / take profit

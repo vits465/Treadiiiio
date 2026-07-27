@@ -16,7 +16,7 @@ export default function MonteCarloPage() {
     setRunning(true);
     setResults(null);
     try {
-      const res = await fetch(`http://localhost:4000/api/monte-carlo?target=${target}&trades=${trades}`);
+      const res = await fetch(`/api/bot/monte-carlo?target=${target}&trades=${trades}`);
       const data = await res.json();
       
       setResults({

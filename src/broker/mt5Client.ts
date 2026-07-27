@@ -199,4 +199,17 @@ export class MT5Client {
       return null;
     }
   }
+
+  public static async getAccountInfo(): Promise<{ login: number; balance: number; equity: number; profit: number; margin: number; margin_free: number } | null> {
+    if (config.USE_SIMULATOR) return null;
+    try {
+      const response = await this.withRetry(() => axios.get(`${this.baseURL}/account`, {
+        headers: { 'X-API-Key': config.API_SECRET_KEY }
+      }), 2, 500);
+      return response.data;
+    } catch (error: any) {
+      logger.error(`[MT5] Failed to get account info: ${error.message}`);
+      return null;
+    }
+  }
 }

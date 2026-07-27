@@ -157,6 +157,42 @@ export class RiskManager {
       };
     }
 
+    // Check Daily Profit Target Lock ($30–$40 target)
+    const profitTargetUsd = config.RISK_DAILY_PROFIT_TARGET_USD;
+    if (profitTargetUsd > 0 && totalTodayPnL >= profitTargetUsd) {
+      this.circuitBreakerBreachedDate = todayStr;
+      this.lastBreakerTriggerTime = new Date().toISOString();
+      this.lastBreakerEquity = currentEquity;
+      this.lastBreakerOpenPositionsCount = openPositionsCount;
+      this.circuitBreakerReason = `🎯 Daily profit target of $${profitTargetUsd.toFixed(2)} REACHED! Total profit today: +$${totalTodayPnL.toFixed(2)}. Locked gains and halted new entries for today.`;
+
+      logger.info(
+        `🎯 [DAILY PROFIT TARGET REACHED] Timestamp: ${this.lastBreakerTriggerTime} | ` +
+        `Day Start Equity: $${effectiveDayStart.toFixed(2)} | Current Equity: $${currentEquity.toFixed(2)} | ` +
+        `Daily Profit: +$${totalTodayPnL.toFixed(2)} (Target: $${profitTargetUsd.toFixed(2)}). ` +
+        `Locking gains — New entries HALTED for the rest of the day.`
+      );
+
+      if (this.dailyLimitAlertedDate !== todayStr) {
+        this.dailyLimitAlertedDate = todayStr;
+        TelegramNotifier.sendMessage(
+          `🎉 *DAILY PROFIT TARGET REACHED!*\n` +
+          `Daily Profit: +$${totalTodayPnL.toFixed(2)} (Target: $${profitTargetUsd.toFixed(2)})\n` +
+          `Current Equity: $${currentEquity.toFixed(2)}\n` +
+          `Trading HALTED for today to lock in gains.`
+        );
+      }
+
+      return {
+        breached: true,
+        reason: this.circuitBreakerReason,
+        dailyPnlPct,
+        currentEquity,
+        dayStartEquity: effectiveDayStart,
+        triggeredAt: this.lastBreakerTriggerTime,
+      };
+    }
+
     return {
       breached: false,
       reason: 'Circuit breaker healthy',

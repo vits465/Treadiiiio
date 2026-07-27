@@ -2,11 +2,13 @@
 process.env.DB_PATH = ':memory:';
 process.env.USE_SIMULATOR = 'true';
 process.env.CURRENCY_PAIRS = 'EUR_USD';
+process.env.TRADING_SESSIONS = 'ASIAN,LONDON,NY';
 process.env.STARTING_BALANCE = '10000';
 process.env.API_SECRET_KEY = 'test_api_key_for_unit_tests_1234';
 process.env.CORS_ALLOWED_ORIGIN = 'http://localhost:3000';
 
 import { initDb, db } from '../src/db';
+import { config } from '../src/config';
 import { TradingEngine } from '../src/engine/tradingEngine';
 import { Quote, PriceFeed } from '../src/data/priceFeed';
 import { MT5Client } from '../src/broker/mt5Client';
@@ -33,6 +35,7 @@ jest.mock('../src/notifier/telegram', () => ({
 describe('TradingEngine Unit Tests', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    config.TRADING_SESSIONS = ['ASIAN', 'LONDON', 'NY'];
     try {
       db.prepare('DELETE FROM positions').run();
       db.prepare('DELETE FROM trades').run();
