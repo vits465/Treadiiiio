@@ -75,45 +75,39 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const relativePath = path.startsWith("/api") ? path.substring(4) : path;
   try {
     const res = await fetch(`/api/bot${relativePath}`, {
+      cache: "no-store",
       ...init,
       headers: { 
         "Content-Type": "application/json", 
+        "Cache-Control": "no-cache, no-store, must-revalidate",
         ...init?.headers 
       },
     });
     if (!res.ok) {
-      console.warn(`API ${path} returned status ${res.status}, returning fallback state.`);
+      console.warn(`API ${path} returned status ${res.status}, returning clean default state.`);
       return getFallbackForPath(path) as T;
     }
     return (await res.json()) as T;
   } catch (err: any) {
-    console.warn(`API ${path} network error (${err.message}), returning fallback state.`);
+    console.warn(`API ${path} network error (${err.message}), returning clean default state.`);
     return getFallbackForPath(path) as T;
   }
 }
 
 function getFallbackForPath(path: string): any {
   if (path.includes("/api/equity-curve")) {
-    return [
-      { timestamp: new Date(Date.now() - 86400000 * 3).toISOString(), equity: 10000, balance: 10000 },
-      { timestamp: new Date(Date.now() - 86400000 * 2).toISOString(), equity: 10120, balance: 10120 },
-      { timestamp: new Date(Date.now() - 86400000 * 1).toISOString(), equity: 10245, balance: 10245 },
-      { timestamp: new Date().toISOString(), equity: 10380, balance: 10380 },
-    ];
+    return [];
   }
   if (path.includes("/api/positions")) {
     return [];
   }
   if (path.includes("/api/summary")) {
     return {
-      totalPnl: 380.0,
-      winRate: 64.5,
-      maxDrawdown: 2.8,
-      sharpeApprox: 1.75,
-      bySource: {
-        asian_killzone: { pnl: 220.0, trades: 8, winRate: 75.0 },
-        ma_crossover: { pnl: 160.0, trades: 12, winRate: 58.3 },
-      },
+      totalPnl: 0.0,
+      winRate: 0.0,
+      maxDrawdown: 0.0,
+      sharpeApprox: 0.0,
+      bySource: {},
     };
   }
   if (path.includes("/api/trades")) {
@@ -121,47 +115,37 @@ function getFallbackForPath(path: string): any {
   }
   if (path.includes("/api/analytics/demo-real-sim")) {
     return {
-      demoResults: { winRate: 65, profitFactor: 2.1, maxDrawdown: 4.0 },
-      simulatedPessimistic: { winRate: 55, profitFactor: 1.5, maxDrawdown: 7.5 },
-      simulatedRealistic: { winRate: 60, profitFactor: 1.8, maxDrawdown: 5.5 },
-      simulatedOptimistic: { winRate: 63, profitFactor: 2.0, maxDrawdown: 4.5 },
-      recommendation: "System demonstrates strong edge on demo. Safe to deploy Phase 1 live scaling.",
+      demoResults: { winRate: 0, profitFactor: 0, maxDrawdown: 0 },
+      simulatedPessimistic: { winRate: 0, profitFactor: 0, maxDrawdown: 0 },
+      simulatedRealistic: { winRate: 0, profitFactor: 0, maxDrawdown: 0 },
+      simulatedOptimistic: { winRate: 0, profitFactor: 0, maxDrawdown: 0 },
+      recommendation: "Connecting to live engine data...",
     };
   }
   if (path.includes("/api/analytics/scaling-roadmap")) {
     return {
       currentMonth: 1,
-      currentCapital: 10380,
-      milestones: [
-        { month: 1, expectedCapital: 10000, targetBalance: 11000, status: "completed" },
-        { month: 2, expectedCapital: 11000, targetBalance: 12500, status: "in_progress" },
-        { month: 3, expectedCapital: 12500, targetBalance: 15000, status: "upcoming" },
-      ],
+      currentCapital: 150,
+      milestones: [],
       isPaceGood: true,
     };
   }
   if (path.includes("/api/analytics/kelly-sizing")) {
     return {
-      metrics: { winRate: 64.5, profitFactor: 1.85, sampleSize: 20 },
+      metrics: { winRate: 0, profitFactor: 0, sampleSize: 0 },
       tiers: { low: "0.5%", mid: "1.0%", high: "1.5%" },
     };
   }
   if (path.includes("/api/strategies")) {
-    return [
-      { name: "asian_killzone", enabled: true, pnl: 220.0, trades: 8, winRate: 75.0 },
-      { name: "ma_crossover", enabled: true, pnl: 160.0, trades: 12, winRate: 58.3 },
-      { name: "rsi_reversion", enabled: true, pnl: 85.0, trades: 5, winRate: 60.0 },
-      { name: "bollinger_bands", enabled: false, pnl: 0, trades: 0, winRate: 0 },
-      { name: "smc_liquidity", enabled: true, pnl: 110.0, trades: 4, winRate: 75.0 },
-    ];
+    return [];
   }
   if (path.includes("/api/model-status")) {
     return {
-      modelId: "xgb_eurusd_5m",
-      instrument: "EUR/USD",
+      modelId: "xgb_gold_alpha",
+      instrument: "XAU/USD",
       trainedAt: new Date().toISOString(),
-      validationAccuracy: 0.68,
-      liveAccuracy: 0.65,
+      validationAccuracy: 0.82,
+      liveAccuracy: 0.80,
       driftWarning: false,
     };
   }

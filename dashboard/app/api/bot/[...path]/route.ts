@@ -74,9 +74,14 @@ async function handleProxy(req: NextRequest, pathSegments: string[]) {
       }
 
       const contentType = res.headers.get("content-type") || "";
+      const responseHeaders = {
+        "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+        "Pragma": "no-cache",
+        "Expires": "0",
+      };
       if (contentType.includes("application/json")) {
         const json = await res.json();
-        return NextResponse.json(json, { status: res.status });
+        return NextResponse.json(json, { status: res.status, headers: responseHeaders });
       } else {
         const text = await res.text();
         // Catch localtunnel 200 OK pseudo-errors
@@ -84,7 +89,7 @@ async function handleProxy(req: NextRequest, pathSegments: string[]) {
           lastError = new Error(`Tunnel ${baseUrl} returned pseudo-error: ${text}`);
           continue;
         }
-        return new NextResponse(text, { status: res.status, headers: { "content-type": contentType } });
+        return new NextResponse(text, { status: res.status, headers: { "content-type": contentType, ...responseHeaders } });
       }
     } catch (err: any) {
       lastError = err;
