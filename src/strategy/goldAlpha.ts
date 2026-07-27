@@ -34,6 +34,13 @@ export class GoldAlphaStrategy implements Strategy {
     const highs = candles.map(c => c.high);
     const lows = candles.map(c => c.low);
 
+    // ADX(14) Trend Strength Filter — 50-year veteran rule: Avoid choppy, sideways markets!
+    const { RegimeRouter } = require('../analytics/regimeRouter');
+    const adx = RegimeRouter.calculateADX(candles, 14);
+    if (adx < 22) {
+      return null; // Market is ranging/choppy (ADX < 22). Master trader sits on hands.
+    }
+
     // EMA 200 Macro Trend
     const ema200 = this.calculateEMA(closes, Math.min(200, len - 1));
     const currentEma200 = ema200[ema200.length - 1];
@@ -75,26 +82,27 @@ export class GoldAlphaStrategy implements Strategy {
     const prevClose = closes[len - 2];
 
     // -------------------------------------------------------------------------
-    // Signal 1: Gold Bullish Expansion Signal (BUY)
-    // - Price above EMA 200 or EMA 20 > EMA 50
+    // Signal 1: Institutional Gold Bullish Expansion Signal (BUY)
+    // - Price strictly above EMA 200 AND EMA 20 > EMA 50
     // - Price bounced/crossed above VWAP
-    // - RSI between 45 and 65 (healthy momentum)
+    // - RSI between 46 and 66 (healthy momentum)
+    // - ADX >= 22 (confirmed trend strength)
     // -------------------------------------------------------------------------
-    const isUptrend = currentClose > currentEma200 || currentEma20 > currentEma50;
+    const isUptrend = currentClose > currentEma200 && currentEma20 > currentEma50;
     const vwapBullishBounce = prevClose <= vwap && currentClose > vwap;
-    const rsiBullishMomentum = prevRsi < 50 && currentRsi >= 50 && currentRsi < 68;
+    const rsiBullishMomentum = prevRsi < 50 && currentRsi >= 48 && currentRsi < 66;
 
     if (isUptrend && (vwapBullishBounce || rsiBullishMomentum)) {
       if (context.activePosition?.action === 'SELL') {
         return { action: 'CLOSE', instrument, strategy: this.name };
       }
       if (!context.activePosition) {
-        const baseConf = isXau ? 0.83 : 0.75;
+        const baseConf = isXau ? 0.85 : 0.78;
         const confidence = Math.min(0.95, baseConf + sessionBonus);
         
         logger.info(
-          `[${this.name}] ${instrument} BUY signal triggered. ` +
-          `Close: ${currentClose.toFixed(2)}, VWAP: ${vwap.toFixed(2)}, RSI: ${currentRsi.toFixed(1)}, ` +
+          `[${this.name}] ${instrument} Master BUY signal triggered. ` +
+          `Close: ${currentClose.toFixed(2)}, VWAP: ${vwap.toFixed(2)}, ADX: ${adx.toFixed(1)}, RSI: ${currentRsi.toFixed(1)}, ` +
           `SL: ${stopLossPips} pips ($${(stopLossPips * pipSize).toFixed(2)}), TP: ${takeProfitPips} pips ($${(takeProfitPips * pipSize).toFixed(2)})`
         );
 
@@ -105,32 +113,33 @@ export class GoldAlphaStrategy implements Strategy {
           confidence,
           stopLossPips,
           takeProfitPips,
-          reason: `Gold Alpha Bullish VWAP/EMA Expansion (RSI: ${currentRsi.toFixed(1)}, SL: ${stopLossPips}p, TP: ${takeProfitPips}p)`,
+          reason: `Institutional Gold 50-Yr Master BUY (ADX: ${adx.toFixed(1)}, RSI: ${currentRsi.toFixed(1)}, SL: ${stopLossPips}p, TP: ${takeProfitPips}p)`,
         };
       }
     }
 
     // -------------------------------------------------------------------------
-    // Signal 2: Gold Bearish Expansion Signal (SELL)
-    // - Price below EMA 200 or EMA 20 < EMA 50
+    // Signal 2: Institutional Gold Bearish Expansion Signal (SELL)
+    // - Price strictly below EMA 200 AND EMA 20 < EMA 50
     // - Price rejection/crossed below VWAP
-    // - RSI between 35 and 55 (healthy bearish momentum)
+    // - RSI between 34 and 54 (healthy bearish momentum)
+    // - ADX >= 22 (confirmed trend strength)
     // -------------------------------------------------------------------------
-    const isDowntrend = currentClose < currentEma200 || currentEma20 < currentEma50;
+    const isDowntrend = currentClose < currentEma200 && currentEma20 < currentEma50;
     const vwapBearishBounce = prevClose >= vwap && currentClose < vwap;
-    const rsiBearishMomentum = prevRsi > 50 && currentRsi <= 50 && currentRsi > 32;
+    const rsiBearishMomentum = prevRsi > 50 && currentRsi <= 52 && currentRsi > 34;
 
     if (isDowntrend && (vwapBearishBounce || rsiBearishMomentum)) {
       if (context.activePosition?.action === 'BUY') {
         return { action: 'CLOSE', instrument, strategy: this.name };
       }
       if (!context.activePosition) {
-        const baseConf = isXau ? 0.83 : 0.75;
+        const baseConf = isXau ? 0.85 : 0.78;
         const confidence = Math.min(0.95, baseConf + sessionBonus);
 
         logger.info(
-          `[${this.name}] ${instrument} SELL signal triggered. ` +
-          `Close: ${currentClose.toFixed(2)}, VWAP: ${vwap.toFixed(2)}, RSI: ${currentRsi.toFixed(1)}, ` +
+          `[${this.name}] ${instrument} Master SELL signal triggered. ` +
+          `Close: ${currentClose.toFixed(2)}, VWAP: ${vwap.toFixed(2)}, ADX: ${adx.toFixed(1)}, RSI: ${currentRsi.toFixed(1)}, ` +
           `SL: ${stopLossPips} pips ($${(stopLossPips * pipSize).toFixed(2)}), TP: ${takeProfitPips} pips ($${(takeProfitPips * pipSize).toFixed(2)})`
         );
 
@@ -141,7 +150,7 @@ export class GoldAlphaStrategy implements Strategy {
           confidence,
           stopLossPips,
           takeProfitPips,
-          reason: `Gold Alpha Bearish VWAP/EMA Expansion (RSI: ${currentRsi.toFixed(1)}, SL: ${stopLossPips}p, TP: ${takeProfitPips}p)`,
+          reason: `Institutional Gold 50-Yr Master SELL (ADX: ${adx.toFixed(1)}, RSI: ${currentRsi.toFixed(1)}, SL: ${stopLossPips}p, TP: ${takeProfitPips}p)`,
         };
       }
     }
