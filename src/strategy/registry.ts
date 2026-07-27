@@ -9,6 +9,7 @@ import { GridOverlayStrategy } from './gridOverlay';
 import { VolatilityArbitrageStrategy } from './volatilityArbitrage';
 import { PowerBreakoutStrategy } from './powerBreakout';
 import { Scalper1mStrategy } from './scalper1m';
+import { GoldAlphaStrategy } from './goldAlpha';
 import { logger } from '../logger';
 
 export class StrategyRegistry {
@@ -26,6 +27,7 @@ export class StrategyRegistry {
     this.register(new VolatilityArbitrageStrategy());
     this.register(new PowerBreakoutStrategy());
     this.register(new Scalper1mStrategy());
+    this.register(new GoldAlphaStrategy());
   }
 
   public static register(strategy: Strategy): void {
