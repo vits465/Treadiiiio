@@ -25,7 +25,8 @@ export type RejectionReasonCode =
   | 'DAILY_CIRCUIT_BREAKER'
   | 'CORRELATION_CAP_EXCEEDED'
   | 'WIDE_SPREAD'
-  | 'RECOVERY_DISABLED';
+  | 'RECOVERY_DISABLED'
+  | 'DAILY_TRADES_LIMIT';
 
 /**
  * Logs a trade rejection into the filter_rejections table for audit purposes.

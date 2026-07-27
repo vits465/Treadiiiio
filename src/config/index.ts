@@ -84,6 +84,7 @@ const envSchema = z.object({
   RISK_STRETCH_CAP_PCT: z.string().transform((val) => parseFloat(val)).default('2.25'),
   RISK_CUMULATIVE_OPEN_RISK_CEILING_PCT: z.string().transform((val) => parseFloat(val)).default('6.0'),
   RISK_DAILY_SOFT_TARGET_USD: z.string().transform((val) => parseFloat(val)).default('25.0'),
+  RISK_MAX_DAILY_TRADES: z.string().transform((val) => parseInt(val, 10)).default('5'),
 
   // Multi-Pair Expansion & Portfolio Correlation
   MAX_PORTFOLIO_CORRELATION_SUM: z.string().transform((val) => parseFloat(val)).default('1.5'),

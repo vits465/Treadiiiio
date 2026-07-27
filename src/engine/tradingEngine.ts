@@ -210,6 +210,10 @@ export class TradingEngine {
       return null;
     }
 
+    if (!RiskManager.checkDailyMaxTrades(config.RISK_MAX_DAILY_TRADES || 5, instrument)) {
+      return null;
+    }
+
     const openPositions = this.getOpenPositions();
     const currentUnrealized = openPositions.reduce((acc, pos) => acc + pos.unrealizedPnL, 0);
     

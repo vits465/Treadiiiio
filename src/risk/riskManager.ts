@@ -396,6 +396,29 @@ export class RiskManager {
   // Existing Helper Validation Methods (Backward Compatibility)
   // -------------------------------------------------------------------------
 
+  public static checkDailyMaxTrades(maxTrades: number = 5, instrument: string = 'UNKNOWN'): boolean {
+    const todayStr = new Date().toISOString().substring(0, 10);
+    const row = db.prepare(`
+      SELECT COUNT(*) as todayCount
+      FROM trades
+      WHERE entry_time LIKE ?
+    `).get(`${todayStr}%`) as { todayCount: number };
+
+    if (row && row.todayCount >= maxTrades) {
+      logger.warn(`[DAILY TRADES CAP] Today's trade limit (${row.todayCount}/${maxTrades}) reached. Rejecting signal for ${instrument}.`);
+      RejectionLogger.log(
+        'RiskManager.checkDailyMaxTrades',
+        'DAILY_TRADES_LIMIT',
+        instrument,
+        undefined,
+        undefined,
+        `${row.todayCount}/${maxTrades} trades executed today`
+      );
+      return false;
+    }
+    return true;
+  }
+
   public static checkPositionLimit(currentOpenCount: number, instrument: string = 'UNKNOWN'): boolean {
     if (currentOpenCount >= config.RISK_MAX_CONCURRENT_POSITIONS) {
       logger.warn(`Risk Management: Position count limit reached (${currentOpenCount}/${config.RISK_MAX_CONCURRENT_POSITIONS}). Rejects signal.`);
