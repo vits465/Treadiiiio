@@ -283,10 +283,11 @@ export class TradingEngine {
       return null;
     }
 
-    // Determine lot size from units; MT5 takes volume in lots. Gold is 100 oz per lot, Forex is 100,000.
+    // Strict Lot Size Bounds — strictly bounded between 0.01 and 0.07 lots
     let volume = unitsToTrade / contractSize;
-    const minVolume = isXau ? 0.01 : 0.01;
-    if (volume < minVolume) volume = minVolume; // Enforce minimum lot size
+    volume = Math.round(volume * 100) / 100;
+    if (volume < 0.01) volume = 0.01;
+    if (volume > 0.07) volume = 0.07;
 
     // Call MT5 API (handles both live and simulator modes)
     const mt5Result = await MT5Client.placeOrder(instrument, action, volume, slPips, tpPips, currentPrice);

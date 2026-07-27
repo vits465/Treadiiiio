@@ -319,20 +319,11 @@ export class RiskManager {
     // Min lot risk budget check: 0.01 lots = 1,000 units (or 1 unit gold)
     let volume = Math.floor(rawVolume * 100) / 100;
 
-    // Small/micro account position sizing — allows 0.01, 0.02, 0.03, 0.04, 0.05 lots
-    if (accountEquity <= 500) {
-      if (volume < 0.01) {
-        volume = 0.01; // Allow 0.01 lot minimum floor for micro accounts
-      } else if (volume > 0.05) {
-        volume = 0.05; // Cap at 0.05 lots max for small account safety
-      }
-    } else {
-      const minLotRiskUsd = 0.01 * contractSize * slDistance;
-      if (minLotRiskUsd > riskUsdAtStop * 1.5) {
-        volume = 0;
-      } else if (volume < 0.01 && rawVolume > 0) {
-        volume = 0.01;
-      }
+    // Strict Lot Size Bounds — strictly bounded between 0.01 and 0.07 lots
+    if (volume < 0.01) {
+      volume = 0.01;
+    } else if (volume > 0.07) {
+      volume = 0.07;
     }
 
     const decision: SizingDecision = {
