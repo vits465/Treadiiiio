@@ -114,28 +114,28 @@ export default function AnalyticsPage() {
             {/* Demo Baseline */}
             <div className="bg-[#0f172a]/60 border border-white/[0.05] rounded-xl p-4">
               <div className="text-[10px] font-bold tracking-widest uppercase text-slate-500 mb-1">Demo Baseline</div>
-              <div className={`text-2xl font-bold ${simReport.demoResults.totalPnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                ${simReport.demoResults.totalPnl.toFixed(2)}
+              <div className={`text-2xl font-bold ${(simReport?.demoResults?.totalPnl ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                ${(simReport?.demoResults?.totalPnl ?? 0).toFixed(2)}
               </div>
-              <div className="text-xs text-slate-400 mt-2">Win Rate: {simReport.demoResults.winPct}%</div>
-              <div className="text-xs text-slate-400">Sharpe: {simReport.demoResults.sharpe}</div>
+              <div className="text-xs text-slate-400 mt-2">Win Rate: {simReport?.demoResults?.winPct ?? 0}%</div>
+              <div className="text-xs text-slate-400">Sharpe: {simReport?.demoResults?.sharpe ?? 0}</div>
             </div>
 
             {/* Realistic Scenario */}
             <div className="bg-indigo-950/20 border border-indigo-500/20 rounded-xl p-4">
               <div className="text-[10px] font-bold tracking-widest uppercase text-indigo-400 mb-1">Realistic Friction (Live)</div>
-              <div className={`text-2xl font-bold ${simReport.simulatedRealistic.totalPnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                ${simReport.simulatedRealistic.totalPnl.toFixed(2)}
+              <div className={`text-2xl font-bold ${(simReport?.simulatedRealistic?.totalPnl ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                ${(simReport?.simulatedRealistic?.totalPnl ?? 0).toFixed(2)}
               </div>
-              <div className="text-xs text-slate-400 mt-2">Slippage Avg: {simReport.simulatedRealistic.avgSlippagePips} pips</div>
-              <div className="text-xs text-slate-400">Max DD: {simReport.simulatedRealistic.maxDrawdownPct}%</div>
+              <div className="text-xs text-slate-400 mt-2">Slippage Avg: {simReport?.simulatedRealistic?.avgSlippagePips ?? 0} pips</div>
+              <div className="text-xs text-slate-400">Max DD: {simReport?.simulatedRealistic?.maxDrawdownPct ?? 0}%</div>
             </div>
           </div>
 
           <div className="mt-4 p-4 rounded-xl bg-slate-900 border border-slate-800">
             <div className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">Verdict & Recommendation</div>
-            <p className="text-sm text-white font-medium">{simReport.recommendation}</p>
-            <p className="text-xs text-indigo-300 mt-2">{simReport.simulatedRealistic.verdict}</p>
+            <p className="text-sm text-white font-medium">{simReport?.recommendation ?? "Connecting..."}</p>
+            <p className="text-xs text-indigo-300 mt-2">{simReport?.simulatedRealistic?.verdict ?? ""}</p>
           </div>
         </motion.div>
 
@@ -148,7 +148,7 @@ export default function AnalyticsPage() {
             </h3>
           </div>
           <p className="text-sm text-slate-400">
-            Optimal capital allocation based on recent edge (Win Rate: {(kelly.metrics.winRate * 100).toFixed(1)}%, PF: {kelly.metrics.profitFactor.toFixed(2)}).
+            Optimal capital allocation based on recent edge (Win Rate: {((kelly?.metrics?.winRate ?? 0) * 100).toFixed(1)}%, PF: {(kelly?.metrics?.profitFactor ?? 0).toFixed(2)}).
           </p>
 
           <div className="space-y-3">

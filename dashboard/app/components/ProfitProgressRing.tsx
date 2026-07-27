@@ -11,9 +11,11 @@ interface ProfitProgressRingProps {
 
 export function ProfitProgressRing({
   currentProfit = 0,
-  targetProfit = 300,
+  targetProfit = 35,
 }: ProfitProgressRingProps) {
-  const percentage = Math.min(100, Math.max(0, (currentProfit / targetProfit) * 100));
+  const safeCurrent = typeof currentProfit === 'number' && !isNaN(currentProfit) ? currentProfit : 0;
+  const safeTarget = typeof targetProfit === 'number' && !isNaN(targetProfit) && targetProfit > 0 ? targetProfit : 35;
+  const percentage = Math.min(100, Math.max(0, (safeCurrent / safeTarget) * 100));
   const strokeDashoffset = 283 - (283 * percentage) / 100;
 
   return (
@@ -25,7 +27,7 @@ export function ProfitProgressRing({
             Daily Target Goal
           </h2>
         </div>
-        <span className="text-xs text-slate-400 font-mono">${targetProfit.toFixed(0)} Goal</span>
+        <span className="text-xs text-slate-400 font-mono">${safeTarget.toFixed(0)} Goal</span>
       </div>
 
       <div className="flex items-center justify-around py-4">
@@ -68,17 +70,17 @@ export function ProfitProgressRing({
             <span className="text-[11px] text-slate-400 uppercase font-mono block">Today PnL</span>
             <span
               className={`text-lg font-bold font-mono ${
-                currentProfit >= 0 ? "text-emerald-400" : "text-rose-400"
+                safeCurrent >= 0 ? "text-emerald-400" : "text-rose-400"
               }`}
             >
-              ${currentProfit.toFixed(2)}
+              ${safeCurrent.toFixed(2)}
             </span>
           </div>
 
           <div>
             <span className="text-[11px] text-slate-400 uppercase font-mono block">Remaining</span>
             <span className="text-sm font-semibold font-mono text-slate-300">
-              ${Math.max(0, targetProfit - currentProfit).toFixed(2)}
+              ${Math.max(0, safeTarget - safeCurrent).toFixed(2)}
             </span>
           </div>
         </div>

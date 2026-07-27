@@ -156,7 +156,7 @@ export default function StrategyLabPage() {
                   <div>
                     <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Win Rate</span>
                     <p className="text-lg font-black text-white">
-                      {strat.winRate !== undefined ? `${strat.winRate.toFixed(1)}%` : '0.0%'}
+                      {typeof strat.winRate === 'number' && !isNaN(strat.winRate) ? `${strat.winRate.toFixed(1)}%` : '0.0%'}
                     </p>
                   </div>
                   <div>
@@ -172,7 +172,7 @@ export default function StrategyLabPage() {
                         <Activity className="h-4.5 w-4.5 text-slate-600" />
                       )}
                       <p className={`text-lg font-black ${strat.trades > 0 ? (isWin ? 'text-emerald-400' : 'text-rose-400') : 'text-slate-400'}`}>
-                        {isWin ? '+' : ''}${strat.pnl.toFixed(2)}
+                        {isWin ? '+' : ''}${(strat.pnl ?? 0).toFixed(2)}
                       </p>
                     </div>
                   </div>

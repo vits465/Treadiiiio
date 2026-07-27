@@ -215,9 +215,9 @@ export default function OverviewPage() {
     { name: 'Account Balance', value: `$${balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, icon: DollarSign, color: 'text-cyan-400', bg: 'bg-cyan-500/10' },
     { name: 'Net Equity', value: `$${equity.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, icon: Zap, color: 'text-indigo-400', bg: 'bg-indigo-500/10' },
     { name: 'Prop Firm Start Balance', value: riskStatus && riskStatus.startOfDayBalance ? `$${riskStatus.startOfDayBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '---', icon: ShieldAlert, color: 'text-emerald-400', bg: 'bg-emerald-500/10' },
-    { name: 'Realized PnL', value: `$${summary.totalPnl.toFixed(2)}`, valueColor: summary.totalPnl >= 0 ? 'text-emerald-400' : 'text-rose-400', icon: summary.totalPnl >= 0 ? TrendingUp : TrendingDown, color: summary.totalPnl >= 0 ? 'text-emerald-400' : 'text-rose-400', bg: summary.totalPnl >= 0 ? 'bg-emerald-500/10' : 'bg-rose-500/10' },
-    { name: 'Max Drawdown', value: `${summary.maxDrawdown.toFixed(2)}%`, icon: ShieldAlert, color: 'text-rose-400', bg: 'bg-rose-500/10' },
-    { name: 'Prop Firm Daily DD Used', value: riskStatus ? `$${riskStatus.dailyLossUsed.toFixed(2)} / $${riskStatus.dailyLossLimit.toFixed(2)}` : '---', valueColor: riskStatus && riskStatus.dailyLossUsed >= riskStatus.dailyLossLimit ? 'text-rose-400' : 'text-amber-400', icon: ShieldAlert, color: 'text-rose-400', bg: 'bg-rose-500/10' },
+    { name: 'Realized PnL', value: `$${(summary?.totalPnl ?? 0).toFixed(2)}`, valueColor: (summary?.totalPnl ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400', icon: (summary?.totalPnl ?? 0) >= 0 ? TrendingUp : TrendingDown, color: (summary?.totalPnl ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400', bg: (summary?.totalPnl ?? 0) >= 0 ? 'bg-emerald-500/10' : 'bg-rose-500/10' },
+    { name: 'Max Drawdown', value: `${(summary?.maxDrawdown ?? 0).toFixed(2)}%`, icon: ShieldAlert, color: 'text-rose-400', bg: 'bg-rose-500/10' },
+    { name: 'Prop Firm Daily DD Used', value: (riskStatus && typeof riskStatus.dailyLossUsed === 'number' && typeof riskStatus.dailyLossLimit === 'number') ? `$${riskStatus.dailyLossUsed.toFixed(2)} / $${riskStatus.dailyLossLimit.toFixed(2)}` : '---', valueColor: (riskStatus && (riskStatus.dailyLossUsed ?? 0) >= (riskStatus.dailyLossLimit ?? 999)) ? 'text-rose-400' : 'text-amber-400', icon: ShieldAlert, color: 'text-rose-400', bg: 'bg-rose-500/10' },
   ];
 
   return (
@@ -414,11 +414,11 @@ export default function OverviewPage() {
                       </span>
                     </td>
                     <td className="py-4 text-slate-400 font-medium text-xs">{pos.source.toUpperCase()}</td>
-                    <td className="py-4 text-right text-slate-300">{pos.entryPrice.toFixed(2)}</td>
-                    <td className="py-4 text-right text-slate-300">{pos.currentPrice.toFixed(2)}</td>
-                    <td className="py-4 text-right text-slate-400">{(pos.units / 100000).toFixed(2)}</td>
-                    <td className={`py-4 text-right font-bold ${pos.unrealizedPnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                      {pos.unrealizedPnl >= 0 ? '+' : ''}${pos.unrealizedPnl.toFixed(2)}
+                    <td className="py-4 text-right text-slate-300">{(pos.entryPrice ?? 0).toFixed(2)}</td>
+                    <td className="py-4 text-right text-slate-300">{(pos.currentPrice ?? 0).toFixed(2)}</td>
+                    <td className="py-4 text-right text-slate-400">{((pos.units ?? 0) / 100000).toFixed(2)}</td>
+                    <td className={`py-4 text-right font-bold ${(pos.unrealizedPnl ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                      {(pos.unrealizedPnl ?? 0) >= 0 ? '+' : ''}${(pos.unrealizedPnl ?? 0).toFixed(2)}
                     </td>
                     <td className="py-4 text-center">
                       <button 

@@ -258,10 +258,10 @@ export default function TradesPage() {
                         </span>
                       </td>
                       <td className="py-4 text-slate-400 font-medium text-xs">{t.source.toUpperCase()}</td>
-                      <td className="py-4 text-right font-mono text-slate-300">{t.entryPrice.toFixed(t.instrument.includes('JPY') ? 3 : 5)}</td>
-                      <td className="py-4 text-right font-mono text-slate-300">{t.exitPrice.toFixed(t.instrument.includes('JPY') ? 3 : 5)}</td>
-                      <td className={`py-4 text-right font-mono font-bold ${t.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                        {t.pnl >= 0 ? '+' : ''}${t.pnl.toFixed(2)}
+                      <td className="py-4 text-right font-mono text-slate-300">{(t.entryPrice ?? 0).toFixed(t.instrument?.includes('JPY') ? 3 : 5)}</td>
+                      <td className="py-4 text-right font-mono text-slate-300">{(t.exitPrice ?? 0).toFixed(t.instrument?.includes('JPY') ? 3 : 5)}</td>
+                      <td className={`py-4 text-right font-mono font-bold ${(t.pnl ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                        {(t.pnl ?? 0) >= 0 ? '+' : ''}${(t.pnl ?? 0).toFixed(2)}
                       </td>
                       <td className="py-4 pr-4 text-right text-slate-500 text-xs font-medium">
                         <div className="flex items-center justify-end space-x-1.5">

@@ -57,14 +57,21 @@ export default function RiskPage() {
     );
   }
 
-  const dailyLossPct = Math.min(100, (riskStatus.dailyLossUsed / riskStatus.dailyLossLimit) * 100);
-  const isDailyLimitHit = riskStatus.dailyLossUsed >= riskStatus.dailyLossLimit;
+  const dailyLossUsed = riskStatus?.dailyLossUsed ?? 0;
+  const dailyLossLimit = riskStatus?.dailyLossLimit ?? 100;
+  const weeklyLossUsed = riskStatus?.weeklyLossUsed ?? 0;
+  const weeklyLossLimit = riskStatus?.weeklyLossLimit ?? 250;
+  const currentOpenPositions = riskStatus?.currentOpenPositions ?? 0;
+  const maxConcurrentPositions = riskStatus?.maxConcurrentPositions ?? 3;
 
-  const weeklyLossPct = Math.min(100, (riskStatus.weeklyLossUsed / riskStatus.weeklyLossLimit) * 100);
-  const isWeeklyLimitHit = riskStatus.weeklyLossUsed >= riskStatus.weeklyLossLimit;
+  const dailyLossPct = Math.min(100, Math.max(0, (dailyLossUsed / (dailyLossLimit || 1)) * 100));
+  const isDailyLimitHit = dailyLossUsed >= dailyLossLimit;
 
-  const positionsPct = Math.min(100, (riskStatus.currentOpenPositions / riskStatus.maxConcurrentPositions) * 100);
-  const isPosLimitHit = riskStatus.currentOpenPositions >= riskStatus.maxConcurrentPositions;
+  const weeklyLossPct = Math.min(100, Math.max(0, (weeklyLossUsed / (weeklyLossLimit || 1)) * 100));
+  const isWeeklyLimitHit = weeklyLossUsed >= weeklyLossLimit;
+
+  const positionsPct = Math.min(100, Math.max(0, (currentOpenPositions / (maxConcurrentPositions || 1)) * 100));
+  const isPosLimitHit = currentOpenPositions >= maxConcurrentPositions;
 
   const bySource = summary && summary.bySource ? summary.bySource : {};
   const mlSignal = bySource.ml_signal;
@@ -120,8 +127,8 @@ export default function RiskPage() {
 
             <div className="space-y-3 relative z-10">
               <div className="flex justify-between text-sm font-bold text-slate-300 font-mono">
-                <span>Used: <span className="text-white">${riskStatus.dailyLossUsed.toFixed(2)}</span></span>
-                <span>Limit: <span className="text-white">${riskStatus.dailyLossLimit.toFixed(2)}</span></span>
+                <span>Used: <span className="text-white">${dailyLossUsed.toFixed(2)}</span></span>
+                <span>Limit: <span className="text-white">${dailyLossLimit.toFixed(2)}</span></span>
               </div>
               <div className="w-full bg-white/[0.02] h-4 rounded-full overflow-hidden border border-white/[0.05] p-0.5">
                 <MotionDiv 
@@ -138,7 +145,7 @@ export default function RiskPage() {
                 ></MotionDiv>
               </div>
               <p className="text-xs text-slate-500 text-right font-semibold">
-                Remaining Drawdown Budget: <span className="text-emerald-400">${(riskStatus.dailyLossLimit - riskStatus.dailyLossUsed).toFixed(2)}</span>
+                Remaining Drawdown Budget: <span className="text-emerald-400">${(dailyLossLimit - dailyLossUsed).toFixed(2)}</span>
               </p>
             </div>
           </MotionDiv>
@@ -207,20 +214,20 @@ export default function RiskPage() {
 
               <div className="flex justify-between py-3 font-medium">
                 <span className="text-slate-400">Total Open Risk</span>
-                <span className={`text-white font-bold px-2 py-0.5 rounded-md border ${riskStatus.currentTotalOpenRiskPct >= 3.0 ? 'bg-rose-500/10 border-rose-500/20 text-rose-400' : 'bg-indigo-500/10 border-indigo-500/20 text-indigo-400'}`}>
-                  {riskStatus.currentTotalOpenRiskPct.toFixed(2)}%
+                <span className={`text-white font-bold px-2 py-0.5 rounded-md border ${(riskStatus?.currentTotalOpenRiskPct ?? 0) >= 3.0 ? 'bg-rose-500/10 border-rose-500/20 text-rose-400' : 'bg-indigo-500/10 border-indigo-500/20 text-indigo-400'}`}>
+                  {(riskStatus?.currentTotalOpenRiskPct ?? 0).toFixed(2)}%
                 </span>
               </div>
               <div className="flex justify-between py-3 font-medium">
                 <span className="text-slate-400">Effective Risk/Trade</span>
                 <span className="text-white flex items-center space-x-1.5 bg-cyan-500/10 px-2 py-0.5 rounded-md border border-cyan-500/20">
                   <Percent className="h-3.5 w-3.5 text-cyan-400" />
-                  <span className="text-cyan-400 font-bold">{riskStatus.effectiveRiskPct}%</span>
+                  <span className="text-cyan-400 font-bold">{riskStatus?.effectiveRiskPct ?? 2.0}%</span>
                 </span>
               </div>
               <div className="flex justify-between py-3 font-medium">
                 <span className="text-slate-400">Distance to Circuit Breaker</span>
-                <span className="text-white font-mono text-emerald-400">${riskStatus.distanceToCircuitBreaker.toFixed(2)}</span>
+                <span className="text-white font-mono text-emerald-400">${(riskStatus?.distanceToCircuitBreaker ?? 0).toFixed(2)}</span>
               </div>
               <div className="flex justify-between py-3 font-medium">
                 <span className="text-slate-400">Recovery vs Primary WR</span>
@@ -228,7 +235,7 @@ export default function RiskPage() {
               </div>
               <div className="flex justify-between py-3 font-medium">
                 <span className="text-slate-400">Weekly Drawdown Budget</span>
-                <span className="text-white font-mono text-rose-400">${(riskStatus.weeklyLossLimit - riskStatus.weeklyLossUsed).toFixed(2)}</span>
+                <span className="text-white font-mono text-rose-400">${(weeklyLossLimit - weeklyLossUsed).toFixed(2)}</span>
               </div>
               <div className="flex justify-between py-3 font-medium">
                 <span className="text-slate-400">Leverage Cap</span>
