@@ -75,7 +75,22 @@ export class TelegramNotifier {
       logger.info(`[TELEGRAM] Processing command: ${text}`);
       
       if (text === '/start' || text === '/help') {
-        await this.sendMessage("🤖 Antigravity Command Center\n\nAvailable Commands:\n/status - Check engine status\n/today - View today's PnL\n/history - View last 5 closed trades\n/config - View bot configuration\n/list - View all active trades\n/pause - Stop taking new trades\n/resume - Resume taking trades\n/kill - EMERGENCY: Pause + close ALL positions\n\n⚠ /kill requires confirmation within 30s");
+        await this.sendMessage(
+          "🤖 *Antigravity Telegram Control Center*\n\n" +
+          "Available Commands:\n" +
+          "🔹 /status - Check live engine status, balance & equity\n" +
+          "🔹 /today - View today's PnL & trade counts\n" +
+          "🔹 /targets - View daily profit target ($35.00) & 5-trade cap\n" +
+          "🔹 /list - View all active open positions\n" +
+          "🔹 /history - View last 5 closed trade outcomes\n" +
+          "🔹 /rejections - View recent filtered trade signals\n" +
+          "🔹 /config - View risk settings & active lot bounds (0.01-0.07)\n" +
+          "🔹 /pause - Pause engine entry scanner\n" +
+          "🔹 /resume - Resume engine entry scanner\n" +
+          "🔹 /reset - Reset daily profit lock & clear stale data\n" +
+          "🔹 /closeall - Instantly emergency close all open positions\n" +
+          "🔹 /kill - Emergency pause + kill switch (with confirmation)"
+        );
       }
       
       else if (text === '/status') {
@@ -89,9 +104,38 @@ export class TelegramNotifier {
           }
           const equity = balance + unrealized;
           
-          await this.sendMessage(`📊 System Status\n\nEngine: ${isPaused ? '⏸ PAUSED' : '▶ RUNNING'}\nBalance: $${balance.toFixed(2)}\nFloating PnL: $${unrealized.toFixed(2)}\nNet Equity: $${equity.toFixed(2)}\nOpen Trades: ${positions.length}`);
+          await this.sendMessage(`📊 *System Status*\n\nEngine: ${isPaused ? '⏸ PAUSED' : '▶ RUNNING'}\nPair Focus: XAU/USD (Gold)\nBalance: $${balance.toFixed(2)}\nFloating PnL: $${unrealized.toFixed(2)}\nNet Equity: $${equity.toFixed(2)}\nOpen Positions: ${positions.length}`);
         } catch (err: any) {
           await this.sendMessage('⚠ Error fetching status: ' + err.message);
+        }
+      }
+
+      else if (text === '/targets') {
+        try {
+          const todayStr = new Date().toISOString().substring(0, 10);
+          const row = db.prepare(`
+            SELECT SUM(pnl) as totalPnL, COUNT(*) as tradesCount 
+            FROM trades 
+            WHERE exit_time LIKE ? AND status = 'CLOSED'
+          `).get(`${todayStr}%`) as any;
+
+          const pnl = row?.totalPnL || 0;
+          const count = row?.tradesCount || 0;
+          const target = config.RISK_DAILY_PROFIT_TARGET_USD || 35.0;
+          const maxTrades = config.RISK_MAX_DAILY_TRADES || 5;
+
+          const progressPct = Math.min(100, Math.max(0, (pnl / target) * 100));
+
+          await this.sendMessage(
+            `🎯 *Daily Target & Limits Status*\n\n` +
+            `Daily Profit Target: $${target.toFixed(2)}\n` +
+            `Today Realized PnL: $${pnl.toFixed(2)}\n` +
+            `Target Progress: ${progressPct.toFixed(1)}%\n` +
+            `Daily Trades Executed: ${count} / ${maxTrades}\n` +
+            `Target Met: ${pnl >= target ? '✅ YES (Lock Active)' : '⏳ IN PROGRESS'}`
+          );
+        } catch (err: any) {
+          await this.sendMessage('⚠ Error fetching target status: ' + err.message);
         }
       }
       
@@ -99,15 +143,15 @@ export class TelegramNotifier {
         try {
           const positions = TradingEngine.getOpenPositions();
           if (positions.length === 0) {
-            await this.sendMessage('📝 Active Trades\n\nNo open positions right now.');
+            await this.sendMessage('📝 *Active Trades*\n\nNo open positions right now.');
             return;
           }
           
-          let msg = `📝 Active Trades (${positions.length})\n\n`;
+          let msg = `📝 *Active Trades (${positions.length})*\n\n`;
           for (const p of positions) {
             const pnl = p.unrealizedPnL || 0;
             const emoji = pnl >= 0 ? '🟢' : '🔴';
-            msg += `${emoji} ${p.action} ${p.instrument}\nEntry: ${p.entryPrice}\nPnL: $${pnl.toFixed(2)}\nAI: ${p.strategy}\n\n`;
+            msg += `${emoji} ${p.action} ${p.instrument}\nEntry: ${p.entryPrice}\nPnL: $${pnl.toFixed(2)}\nLots: ${(p.units / 100).toFixed(2)}\nStrategy: ${p.strategy}\n\n`;
           }
           await this.sendMessage(msg);
         } catch (err: any) {
@@ -118,11 +162,11 @@ export class TelegramNotifier {
       else if (text === '/today') {
         try {
           const today = new Date().toISOString().split('T')[0];
-          const result = db.prepare('SELECT SUM(pnl) as totalPnL, COUNT(*) as tradesCount FROM trades WHERE exit_time LIKE ?').get(today + '%') as any;
+          const result = db.prepare('SELECT SUM(pnl) as totalPnL, COUNT(*) as tradesCount FROM trades WHERE exit_time LIKE ? AND status = \'CLOSED\'').get(today + '%') as any;
           const pnl = result?.totalPnL || 0;
           const count = result?.tradesCount || 0;
           
-          await this.sendMessage(`📅 *Today's Performance*\n\nTrades: ${count}\nRealized PnL: $${pnl.toFixed(2)}`);
+          await this.sendMessage(`📅 *Today's Performance*\n\nTrades: ${count} / ${config.RISK_MAX_DAILY_TRADES || 5}\nRealized PnL: $${pnl.toFixed(2)}`);
         } catch (err: any) {
           await this.sendMessage('⚠ Error fetching today data: ' + err.message);
         }
@@ -146,11 +190,29 @@ export class TelegramNotifier {
           await this.sendMessage('⚠ Error fetching history: ' + err.message);
         }
       }
+
+      else if (text === '/rejections') {
+        try {
+          const rejections = db.prepare("SELECT timestamp, filter_name, reason_code, instrument, details FROM filter_rejections ORDER BY timestamp DESC LIMIT 5").all() as any[];
+          if (!rejections || rejections.length === 0) {
+            await this.sendMessage('🛡️ *Recent Signal Rejections*\n\nNo rejected signals recorded.');
+            return;
+          }
+
+          let msg = '🛡️ *Recent Signal Rejections*\n\n';
+          for (const r of rejections) {
+            msg += `• [${r.reason_code}] ${r.instrument}\nFilter: ${r.filter_name}\nDetails: ${r.details || 'N/A'}\n\n`;
+          }
+          await this.sendMessage(msg);
+        } catch (err: any) {
+          await this.sendMessage('⚠ Error fetching rejections: ' + err.message);
+        }
+      }
       
       else if (text === '/config') {
         try {
           const strats = config.ENABLED_STRATEGIES.map(s => s.replace(/_/g, '\\_')).join(', ');
-          const msg = `⚙️ *System Configuration*\n\nTarget Profit: $${config.RISK_DAILY_PROFIT_TARGET_USD}\nTake Profit: $${config.RISK_TRADE_TAKE_PROFIT_USD}\nMax Drawdown: ${config.RISK_MAX_DRAWDOWN_PCT}%\nSlippage Alert: ${config.ALERT_SLIPPAGE_PIPS} pips\nSimulator Mode: ${config.USE_SIMULATOR}\n\nStrategies:\n${strats}`;
+          const msg = `⚙️ *System Configuration*\n\nTarget Asset: XAU/USD (Gold Only)\nLot Size Range: 0.01 - 0.07 lots\nDaily Target: $${config.RISK_DAILY_PROFIT_TARGET_USD}\nDaily Max Trades: ${config.RISK_MAX_DAILY_TRADES || 5}\nConfidence Gate: ${config.RISK_CONFIDENCE_MIN_THRESHOLD || 0.78}\nTake Profit ATR: ${config.ATR_TP_MULTIPLIER}x\nStop Loss ATR: ${config.ATR_SL_MULTIPLIER}x\n\nActive Strategies:\n${strats}`;
           await this.sendMessage(msg);
         } catch (err: any) {
           await this.sendMessage('⚠ Error fetching config: ' + err.message);
@@ -172,6 +234,40 @@ export class TelegramNotifier {
         } else {
           TradingEngine.setPaused(false);
           await this.sendMessage('▶ Engine Resumed\nBot is now scanning for new entries.');
+        }
+      }
+
+      else if (text === '/reset') {
+        try {
+          db.prepare("DELETE FROM trades").run();
+          db.prepare("DELETE FROM equity_snapshots").run();
+          db.prepare("DELETE FROM filter_rejections").run();
+          TradingEngine.setBalance(config.STARTING_BALANCE || 150.00);
+          TradingEngine.setPaused(false);
+          await this.sendMessage("🔄 *DATABASE & DAILY TARGET RESET SUCCESSFUL*\nAll trade histories cleared. Engine set to $150.00 balance.");
+        } catch (err: any) {
+          await this.sendMessage('⚠ Reset failed: ' + err.message);
+        }
+      }
+
+      else if (text === '/closeall') {
+        try {
+          const openPositions = TradingEngine.getOpenPositions();
+          if (openPositions.length === 0) {
+            await this.sendMessage('ℹ️ No open positions to close.');
+            return;
+          }
+          let closedCount = 0;
+          for (const pos of openPositions) {
+            const quote = PriceFeed.getLatestQuote(pos.instrument);
+            if (quote) {
+              await TradingEngine.closePosition(pos.id, quote, 'TELEGRAM /closeall EMERGENCY');
+              closedCount++;
+            }
+          }
+          await this.sendMessage(`🚨 *EMERGENCY CLOSE COMPLETE*\n${closedCount} position(s) closed immediately.`);
+        } catch (err: any) {
+          await this.sendMessage('⚠ Emergency close failed: ' + err.message);
         }
       }
       
@@ -216,7 +312,7 @@ export class TelegramNotifier {
       }
       
       else {
-        await this.sendMessage('❌ Unknown command. Type /start to see available commands.');
+        await this.sendMessage('❌ Unknown command. Type /start or /help to see available commands.');
       }
     } catch (err: any) {
       logger.error(`[TELEGRAM] handleCommand crashed: ${err.message}`);

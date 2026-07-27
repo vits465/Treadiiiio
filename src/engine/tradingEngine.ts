@@ -40,6 +40,12 @@ export class TradingEngine {
     logger.info(`Trading Engine ${state ? 'PAUSED' : 'RESUMED'} by user.`);
   }
 
+  public static setBalance(newBalance: number) {
+    this.balance = newBalance;
+    this.peakEquity = newBalance;
+    logger.info(`Trading Engine balance reset to $${newBalance.toFixed(2)}.`);
+  }
+
   /**
    * Initializes trading engine balance by checking database trade logs.
    * Also restores peak equity from historical snapshots.

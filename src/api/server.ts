@@ -272,14 +272,14 @@ app.get('/api/summary', (req, res) => {
     `).get() as { maxDd: number | null };
     const maxDrawdown = maxDrawdownRow?.maxDd || 0;
 
-    // Breakdown by strategy (bySource)
+    // Breakdown by strategy (bySource) — dynamically calculated across all strategies
     const bySource: Record<string, { pnl: number; trades: number; winRate: number }> = {};
-    const allStrats = ['ma_crossover', 'rsi_reversion', 'bollinger_bands', 'ml_signal'];
-    for (const strat of allStrats) {
+    const uniqueStrategies = Array.from(new Set(allClosedTrades.map((t) => t.strategy).filter(Boolean)));
+    for (const strat of uniqueStrategies) {
       const stratTrades = allClosedTrades.filter((t) => t.strategy === strat);
       const sCount = stratTrades.length;
       const sWins = stratTrades.filter((t) => t.pnl > 0).length;
-      const sPnL = stratTrades.reduce((acc, t) => acc + t.pnl, 0);
+      const sPnL = stratTrades.reduce((acc, t) => acc + (t.pnl || 0), 0);
       bySource[strat] = {
         pnl: sPnL,
         trades: sCount,
