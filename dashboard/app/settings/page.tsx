@@ -19,7 +19,8 @@ export default function SettingsPage() {
     CURRENCY_PAIRS: 'EUR_USD',
     TELEGRAM_BOT_TOKEN: '',
     TELEGRAM_CHAT_ID: '',
-    RISK_DAILY_PROFIT_TARGET_USD: 50.0
+    RISK_DAILY_PROFIT_TARGET_USD: 50.0,
+    TRADE_DIRECTION: 'BOTH'
   });
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
@@ -246,6 +247,34 @@ export default function SettingsPage() {
             </div>
 
             <div>
+              <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Trade Direction</label>
+              <select
+                value={config.TRADE_DIRECTION ?? 'BOTH'}
+                onChange={e => setConfig({...config, TRADE_DIRECTION: e.target.value as any})}
+                className="w-full bg-slate-900/50 border border-white/[0.1] rounded-xl px-4 py-3 text-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all"
+              >
+                <option value="BOTH" className="bg-slate-900 text-white">BOTH (Buy &amp; Sell Opportunities)</option>
+                <option value="BUY_ONLY" className="bg-slate-900 text-white">BUY ONLY</option>
+                <option value="SELL_ONLY" className="bg-slate-900 text-white">SELL ONLY</option>
+              </select>
+              <p className="text-[10px] text-slate-500 mt-1 font-medium">Select BOTH to allow the bot to take both long (BUY) and short (SELL) trade setups.</p>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Max Daily Trades Limit</label>
+              <input 
+                type="number" 
+                min="1"
+                max="50"
+                required
+                value={config.RISK_MAX_DAILY_TRADES ?? 10}
+                onChange={e => setConfig({...config, RISK_MAX_DAILY_TRADES: parseInt(e.target.value) || 10})}
+                className="w-full bg-slate-900/50 border border-white/[0.1] rounded-xl px-4 py-3 text-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all font-mono"
+              />
+              <p className="text-[10px] text-slate-500 mt-1 font-medium">Maximum number of trades executed per 24h trading day (currently set to 10 trades).</p>
+            </div>
+
+            <div>
               <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Daily Profit Target ($ USD)</label>
               <input 
                 type="number" 
@@ -257,6 +286,15 @@ export default function SettingsPage() {
                 className="w-full bg-slate-900/50 border border-white/[0.1] rounded-xl px-4 py-3 text-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all"
               />
               <p className="text-[10px] text-slate-500 mt-1 font-medium">When total PnL reaches this target, bot flattens all positions and pauses automatically.</p>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-cyan-950/20 border border-cyan-500/20 space-y-1.5 font-mono text-xs">
+              <div className="flex justify-between items-center text-slate-400 font-sans font-bold uppercase text-[10px]">
+                <span>Connected Broker Account</span>
+                <span className="text-emerald-400 font-extrabold text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20">Active MT5 Bridge</span>
+              </div>
+              <div className="text-white font-bold text-sm">Account #{config.MT5_ACCOUNT || '113769804'}</div>
+              <div className="text-cyan-400 text-xs">Server: {config.MT5_SERVER || 'MetaQuotes-Demo'}</div>
             </div>
             
             <div className="pt-4 border-t border-white/[0.05]">

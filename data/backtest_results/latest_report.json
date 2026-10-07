@@ -1,0 +1,430 @@
+{
+  "totalTrades": 5,
+  "winsCount": 3,
+  "lossesCount": 2,
+  "breakEvenCount": 0,
+  "winRate": 60,
+  "totalPnL": 4.42,
+  "netReturnPct": 4.4,
+  "profitFactor": 5.3,
+  "maxDrawdown": 0.5,
+  "maxDrawdownUsd": 0.46,
+  "sharpeRatio": 0.68,
+  "sortinoRatio": 1.51,
+  "expectancyUsd": 0.52,
+  "avgWinUsd": 1.06,
+  "avgLossUsd": 0.3,
+  "winLossRatio": 3.53,
+  "largestWinUsd": 1.06,
+  "largestLossUsd": -0.46,
+  "maxConsecutiveWins": 2,
+  "maxConsecutiveLosses": 1,
+  "avgHoldingTimeMinutes": 11,
+  "totalCommissionsPaid": 0.4,
+  "totalSlippagePaid": 0.29,
+  "totalSwapPaid": 0,
+  "profitableDays": 1,
+  "totalTradingDays": 1,
+  "dailyWinRate": 100,
+  "avgDailyProfitUsd": 4.42,
+  "dailyTargetHitCount": 0,
+  "regimeBreakdown": {
+    "TRENDING": {
+      "trades": 1,
+      "pnl": 1.06,
+      "winRate": 100
+    },
+    "RANGING": {
+      "trades": 3,
+      "pnl": 1.98,
+      "winRate": 66.7
+    },
+    "HIGH_VOLATILITY": {
+      "trades": 0,
+      "pnl": 0,
+      "winRate": 0
+    }
+  },
+  "equityCurve": [
+    {
+      "time": "2026-10-07T15:08:10.405Z",
+      "equity": 100,
+      "drawdown": 0
+    },
+    {
+      "time": "2026-10-07T15:38:10.405Z",
+      "equity": 100,
+      "drawdown": 0
+    },
+    {
+      "time": "2026-10-07T15:43:10.405Z",
+      "equity": 100,
+      "drawdown": 0
+    },
+    {
+      "time": "2026-10-07T15:48:10.405Z",
+      "equity": 100,
+      "drawdown": 0
+    },
+    {
+      "time": "2026-10-07T15:53:10.405Z",
+      "equity": 100,
+      "drawdown": 0
+    },
+    {
+      "time": "2026-10-07T15:58:10.405Z",
+      "equity": 100,
+      "drawdown": 0
+    },
+    {
+      "time": "2026-10-07T16:03:10.405Z",
+      "equity": 100,
+      "drawdown": 0
+    },
+    {
+      "time": "2026-10-07T16:08:10.405Z",
+      "equity": 100,
+      "drawdown": 0
+    },
+    {
+      "time": "2026-10-07T16:13:10.405Z",
+      "equity": 100,
+      "drawdown": 0
+    },
+    {
+      "time": "2026-10-07T16:18:10.405Z",
+      "equity": 100,
+      "drawdown": 0
+    },
+    {
+      "time": "2026-10-07T16:23:10.405Z",
+      "equity": 100,
+      "drawdown": 0
+    },
+    {
+      "time": "2026-10-07T16:28:10.405Z",
+      "equity": 100,
+      "drawdown": 0
+    },
+    {
+      "time": "2026-10-07T16:33:10.405Z",
+      "equity": 100,
+      "drawdown": 0
+    },
+    {
+      "time": "2026-10-07T16:38:10.405Z",
+      "equity": 100,
+      "drawdown": 0
+    },
+    {
+      "time": "2026-10-07T16:43:10.405Z",
+      "equity": 101.53,
+      "drawdown": 0
+    },
+    {
+      "time": "2026-10-07T16:48:10.405Z",
+      "equity": 101.53,
+      "drawdown": 0
+    },
+    {
+      "time": "2026-10-07T16:53:10.405Z",
+      "equity": 101.53,
+      "drawdown": 0
+    },
+    {
+      "time": "2026-10-07T16:58:10.405Z",
+      "equity": 101.53,
+      "drawdown": 0
+    },
+    {
+      "time": "2026-10-07T17:03:10.405Z",
+      "equity": 101.53,
+      "drawdown": 0
+    },
+    {
+      "time": "2026-10-07T17:08:10.405Z",
+      "equity": 101.53,
+      "drawdown": 0
+    },
+    {
+      "time": "2026-10-07T17:13:10.405Z",
+      "equity": 101.53,
+      "drawdown": 0
+    },
+    {
+      "time": "2026-10-07T17:18:10.405Z",
+      "equity": 101.53,
+      "drawdown": 0
+    },
+    {
+      "time": "2026-10-07T17:23:10.405Z",
+      "equity": 101.53,
+      "drawdown": 0
+    },
+    {
+      "time": "2026-10-07T17:28:10.405Z",
+      "equity": 101.53,
+      "drawdown": 0
+    },
+    {
+      "time": "2026-10-07T17:33:10.405Z",
+      "equity": 101.53,
+      "drawdown": 0
+    },
+    {
+      "time": "2026-10-07T17:38:10.405Z",
+      "equity": 101.53,
+      "drawdown": 0
+    },
+    {
+      "time": "2026-10-07T17:43:10.405Z",
+      "equity": 101.53,
+      "drawdown": 0
+    },
+    {
+      "time": "2026-10-07T17:48:10.405Z",
+      "equity": 101.53,
+      "drawdown": 0
+    },
+    {
+      "time": "2026-10-07T17:53:10.405Z",
+      "equity": 101.53,
+      "drawdown": 0
+    },
+    {
+      "time": "2026-10-07T17:58:10.405Z",
+      "equity": 101.85,
+      "drawdown": 0.1
+    },
+    {
+      "time": "2026-10-07T18:03:10.405Z",
+      "equity": 101.85,
+      "drawdown": 0.1
+    },
+    {
+      "time": "2026-10-07T18:08:10.405Z",
+      "equity": 101.85,
+      "drawdown": 0.1
+    },
+    {
+      "time": "2026-10-07T18:13:10.405Z",
+      "equity": 102.31,
+      "drawdown": 0
+    },
+    {
+      "time": "2026-10-07T18:18:10.405Z",
+      "equity": 103.36,
+      "drawdown": 0
+    },
+    {
+      "time": "2026-10-07T18:23:10.405Z",
+      "equity": 103.36,
+      "drawdown": 0
+    },
+    {
+      "time": "2026-10-07T18:28:10.405Z",
+      "equity": 103.36,
+      "drawdown": 0
+    },
+    {
+      "time": "2026-10-07T18:33:10.405Z",
+      "equity": 103.36,
+      "drawdown": 0
+    },
+    {
+      "time": "2026-10-07T18:38:10.405Z",
+      "equity": 103.36,
+      "drawdown": 0
+    },
+    {
+      "time": "2026-10-07T18:43:10.405Z",
+      "equity": 103.36,
+      "drawdown": 0
+    },
+    {
+      "time": "2026-10-07T18:48:10.405Z",
+      "equity": 103.36,
+      "drawdown": 0
+    },
+    {
+      "time": "2026-10-07T18:53:10.405Z",
+      "equity": 103.36,
+      "drawdown": 0
+    },
+    {
+      "time": "2026-10-07T18:58:10.405Z",
+      "equity": 103.36,
+      "drawdown": 0
+    },
+    {
+      "time": "2026-10-07T19:03:10.405Z",
+      "equity": 103.36,
+      "drawdown": 0
+    },
+    {
+      "time": "2026-10-07T19:08:10.405Z",
+      "equity": 103.36,
+      "drawdown": 0
+    },
+    {
+      "time": "2026-10-07T19:13:10.405Z",
+      "equity": 103.36,
+      "drawdown": 0
+    },
+    {
+      "time": "2026-10-07T19:18:10.405Z",
+      "equity": 103.36,
+      "drawdown": 0
+    },
+    {
+      "time": "2026-10-07T19:23:10.405Z",
+      "equity": 103.36,
+      "drawdown": 0
+    },
+    {
+      "time": "2026-10-07T19:28:10.405Z",
+      "equity": 103.36,
+      "drawdown": 0
+    },
+    {
+      "time": "2026-10-07T19:33:10.405Z",
+      "equity": 103.36,
+      "drawdown": 0
+    },
+    {
+      "time": "2026-10-07T19:38:10.405Z",
+      "equity": 103.36,
+      "drawdown": 0
+    },
+    {
+      "time": "2026-10-07T19:43:10.405Z",
+      "equity": 103.36,
+      "drawdown": 0
+    },
+    {
+      "time": "2026-10-07T19:48:10.405Z",
+      "equity": 103.82,
+      "drawdown": 0
+    },
+    {
+      "time": "2026-10-07T19:53:10.405Z",
+      "equity": 103.82,
+      "drawdown": 0
+    },
+    {
+      "time": "2026-10-07T19:58:10.405Z",
+      "equity": 104.88,
+      "drawdown": 0
+    },
+    {
+      "time": "2026-10-07T20:03:10.405Z",
+      "equity": 104.88,
+      "drawdown": 0
+    },
+    {
+      "time": "2026-10-07T20:07:10.405Z",
+      "equity": 104.88,
+      "drawdown": 0
+    }
+  ],
+  "botSuggestion": {
+    "grade": "A",
+    "verdict": "Strong profitable edge with favorable risk-to-reward dynamics. Safe and reliable for $50 account operation when using 0.01 micro-lots.",
+    "suitability50Capital": "EXCELLENT",
+    "dailyGoalFeasibility": "Achievable: Projected daily gain of $8.00/day. Pair with strict 1:2 RRR to consistently hit the $10–$15 daily target.",
+    "recommendedLotSize": 0.01,
+    "recommendedStopLossPips": 20,
+    "recommendedTakeProfitPips": 40,
+    "recommendedTradingHours": "London Session (07:00-11:00 UTC) & NY Open (12:00-16:00 UTC)",
+    "keyStrengths": [
+      "High win probability (60% win rate) provides psychological comfort.",
+      "Healthy Profit Factor (5.3) indicates reward far outstrips risk.",
+      "Low max drawdown (0.45029307868469415%) shields your $50 account from margin calls.",
+      "Built-in Auto Break-Even (+2 pips) locks profits immediately once price surges."
+    ],
+    "riskWarnings": [
+      "Avoid trading during major red-folder US news releases (CPI, NFP, FOMC) to prevent spread spikes."
+    ],
+    "actionableSettings": {
+      "lotSize": 0.01,
+      "maxDailyTrades": 10,
+      "dailyProfitTargetUsd": 15,
+      "stopLossPips": 20,
+      "takeProfitPips": 40,
+      "autoBreakEvenPips": 12,
+      "riskBasePct": 3.5
+    }
+  },
+  "tradeHistory": [
+    {
+      "id": "488c4507-e4d7-4b2d-b535-5d05cc317bab",
+      "action": "SELL",
+      "entryTime": "2026-10-07T16:34:10.405Z",
+      "exitTime": "2026-10-07T16:43:10.405Z",
+      "entryPrice": 1.08748,
+      "exitPrice": 1.08554,
+      "lots": 0.01,
+      "pnl": 1.0640000000000382,
+      "pips": 18.4,
+      "holdingMinutes": 9,
+      "reason": "Take Profit Hit",
+      "regime": "RANGING"
+    },
+    {
+      "id": "cc66d923-4fa3-42d1-bab8-be516287afd5",
+      "action": "BUY",
+      "entryTime": "2026-10-07T17:52:10.405Z",
+      "exitTime": "2026-10-07T17:55:10.405Z",
+      "entryPrice": 1.08205,
+      "exitPrice": 1.08207,
+      "lots": 0.01,
+      "pnl": -0.1359999999999628,
+      "pips": -1.6,
+      "holdingMinutes": 3,
+      "reason": "Break-Even SL Hit",
+      "regime": "RANGING"
+    },
+    {
+      "id": "7cfe4d0b-14e8-422c-b805-54861182fbcb",
+      "action": "SELL",
+      "entryTime": "2026-10-07T18:04:10.405Z",
+      "exitTime": "2026-10-07T18:15:10.405Z",
+      "entryPrice": 1.08182,
+      "exitPrice": 1.07988,
+      "lots": 0.01,
+      "pnl": 1.0520000000000929,
+      "pips": 18.2,
+      "holdingMinutes": 11,
+      "reason": "Take Profit Hit",
+      "regime": "RANGING"
+    },
+    {
+      "id": "407dd238-1d50-4885-bf85-bb240f022d1b",
+      "action": "BUY",
+      "entryTime": "2026-10-07T19:24:10.405Z",
+      "exitTime": "2026-10-07T19:55:10.405Z",
+      "entryPrice": 1.07563,
+      "exitPrice": 1.07757,
+      "lots": 0.01,
+      "pnl": 1.063999999999905,
+      "pips": 18.4,
+      "holdingMinutes": 31,
+      "reason": "Take Profit Hit",
+      "regime": "TRENDING"
+    },
+    {
+      "id": "b0f6fbc0-6619-496f-b061-c89e96a1e92e",
+      "action": "SELL",
+      "entryTime": "2026-10-07T20:06:10.405Z",
+      "exitTime": "2026-10-07T20:07:10.405Z",
+      "entryPrice": 1.07701,
+      "exitPrice": 1.07724,
+      "lots": 0.01,
+      "pnl": -0.46399999999985114,
+      "pips": -3.2,
+      "holdingMinutes": 1,
+      "reason": "Backtest End Close",
+      "regime": "TRENDING"
+    }
+  ]
+}

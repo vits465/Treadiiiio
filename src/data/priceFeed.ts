@@ -342,6 +342,25 @@ export class PriceFeed {
     for (const inst of instruments) {
       const normInst = inst.replace('_', '/');
 
+      // 0. Primary in live mode: Fetch quote directly from MT5 Terminal Bridge
+      if (!config.USE_SIMULATOR) {
+        try {
+          const { MT5Client } = await import('../broker/mt5Client');
+          const mt5Quote = await MT5Client.getQuote(normInst);
+          if (mt5Quote) {
+            quotes.push({
+              instrument: normInst,
+              time: new Date(mt5Quote.time * 1000).toISOString(),
+              bid: mt5Quote.bid,
+              ask: mt5Quote.ask,
+            });
+            continue;
+          }
+        } catch {
+          // Fall back to redis / simulation feed if MT5 bridge is offline
+        }
+      }
+
       // 1. Try to get from Redis (ultra-fast)
       const cachedQuote = await redis.getCache<Quote>(`quote:${normInst}`);
       if (cachedQuote) {
@@ -398,9 +417,76 @@ export class PriceFeed {
   }
 
   /**
-   * Saves candles to local database.
+   * Data Hygiene: Validates incoming candles:
+   * - No NaN, infinite, or non-positive prices
+   * - Monotonic timestamps (sorted ascending)
+   * - Deduplicates timestamps
+   * - Detects and logs abnormal time gaps
+   * - Ensures high >= max(open, close) and low <= min(open, close)
+   */
+  public static validateAndSanitizeCandles(candles: Candle[], granularity: string = '1h'): Candle[] {
+    if (!candles || candles.length === 0) return [];
+
+    const intervalMs = this.getGranularityMs(granularity);
+    const seenTimes = new Set<string>();
+    const valid: Candle[] = [];
+
+    for (const c of candles) {
+      if (!c.time || !c.instrument) continue;
+      if (isNaN(c.open) || isNaN(c.high) || isNaN(c.low) || isNaN(c.close)) {
+        logger.warn(`[DATA HYGIENE] Discarded candle with NaN price: ${c.instrument} at ${c.time}`);
+        continue;
+      }
+      if (c.open <= 0 || c.high <= 0 || c.low <= 0 || c.close <= 0) {
+        logger.warn(`[DATA HYGIENE] Discarded candle with non-positive price: ${c.instrument} at ${c.time}`);
+        continue;
+      }
+
+      // Ensure high is highest, low is lowest
+      const realHigh = Math.max(c.high, c.open, c.close);
+      const realLow = Math.min(c.low, c.open, c.close);
+
+      valid.push({
+        ...c,
+        high: realHigh,
+        low: realLow,
+        volume: isNaN(c.volume) || c.volume < 0 ? 0 : c.volume
+      });
+    }
+
+    // Sort monotonically ascending by time
+    valid.sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+
+    // Deduplicate
+    const deduped: Candle[] = [];
+    for (const c of valid) {
+      if (!seenTimes.has(c.time)) {
+        seenTimes.add(c.time);
+        deduped.push(c);
+      }
+    }
+
+    // Gap detection
+    for (let i = 1; i < deduped.length; i++) {
+      const prevTime = new Date(deduped[i - 1].time).getTime();
+      const currTime = new Date(deduped[i].time).getTime();
+      const diff = currTime - prevTime;
+      if (diff > intervalMs * 2.5) {
+        logger.debug(
+          `[DATA HYGIENE] Gap detected in ${deduped[i].instrument} (${granularity}): ` +
+          `${(diff / (60 * 1000)).toFixed(1)} mins between ${deduped[i - 1].time} and ${deduped[i].time}`
+        );
+      }
+    }
+
+    return deduped;
+  }
+
+  /**
+   * Saves candles to local database with data hygiene validation.
    */
   public static saveCandlesToDb(candles: Candle[]) {
+    const sanitized = this.validateAndSanitizeCandles(candles);
     const insert = db.prepare(`
       INSERT OR REPLACE INTO candles (time, instrument, granularity, open, high, low, close, volume)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -412,7 +498,7 @@ export class PriceFeed {
       }
     });
 
-    transaction(candles);
+    transaction(sanitized);
   }
 
   /**

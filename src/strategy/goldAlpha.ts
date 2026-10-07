@@ -1,6 +1,9 @@
-import { Strategy, Signal, MarketContext, Candle } from './strategy.interface';
+import { Strategy, Signal, MarketContext, Candle, StrategyEvaluationResult } from './strategy.interface';
+import { config } from '../config';
 import { computeAtr } from '../risk/volatility';
 import { logger } from '../logger';
+import { SymbolNormalizer } from '../utils/symbolNormalizer';
+import { RegimeRouter } from '../analytics/regimeRouter';
 
 /**
  * GoldAlphaStrategy — Specialized Institutional Gold (XAU/USD) Alpha Strategy
@@ -11,21 +14,20 @@ import { logger } from '../logger';
 export class GoldAlphaStrategy implements Strategy {
   public readonly name = 'gold_alpha';
 
-  public onCandle(candle: Candle, context: MarketContext): Signal | null {
-    const candles = context.historicalCandles;
-    if (!candles || candles.length < 50) return null;
+  public evaluate(candles: Candle[], context: MarketContext): StrategyEvaluationResult {
+    if (!candles || candles.length < 50) {
+      return { signal: 'NONE', confidence: 0, reason: 'Insufficient candle history (minimum 50 bars required)', sl: 0, tp: 0 };
+    }
 
-    const instrument = candle.instrument;
-    const isXau = instrument.includes('XAU');
-    const isJpy = instrument.includes('JPY');
-    const pipSize = (isXau || isJpy) ? 0.01 : 0.0001;
+    const candle = candles[candles.length - 1];
+    const instrument = candle.instrument || (context.currentQuote ? context.currentQuote.instrument : 'XAU/USD');
+    const isXau = SymbolNormalizer.isGold(instrument);
+    const pipSize = SymbolNormalizer.getPipSize(instrument);
 
-    // 1. Session Filter: High Liquidity Hours for Gold (London 07:00-11:00 UTC & NY 12:00-17:00 UTC)
+    // 1. Session Filter: High Liquidity Hours for Gold (London 07:00-11:00 UTC & NY 12:00-18:00 UTC)
     const candleTime = new Date(candle.time);
     const hour = candleTime.getUTCHours();
     const isGoldSession = (hour >= 7 && hour <= 11) || (hour >= 12 && hour <= 18);
-    
-    // Give extra priority to Gold during prime trading sessions
     const sessionBonus = isGoldSession ? 0.05 : 0.0;
 
     // 2. Indicators Calculation
@@ -34,11 +36,10 @@ export class GoldAlphaStrategy implements Strategy {
     const highs = candles.map(c => c.high);
     const lows = candles.map(c => c.low);
 
-    // ADX(14) Trend Strength Filter — 50-year veteran rule: Avoid choppy, sideways markets!
-    const { RegimeRouter } = require('../analytics/regimeRouter');
+    // ADX(14) Trend Strength Filter: Avoid choppy, sideways markets!
     const adx = RegimeRouter.calculateADX(candles, 14);
     if (adx < 18) {
-      return null; // Market is ranging/choppy (ADX < 18).
+      return { signal: 'NONE', confidence: 0, reason: `Market choppy/ranging (ADX: ${adx.toFixed(1)} < 18)`, sl: 0, tp: 0 };
     }
 
     // EMA 200 Macro Trend
@@ -71,7 +72,7 @@ export class GoldAlphaStrategy implements Strategy {
     // ATR 14 Dynamic Risk Management
     const atrs = computeAtr(candles, 14);
     const currentAtr = atrs[atrs.length - 1];
-    const defaultAtr = isXau ? 8.0 : isJpy ? 0.35 : 0.0020;
+    const defaultAtr = isXau ? 2.5 : 0.0020;
     const effectiveAtr = currentAtr && currentAtr > 0 ? currentAtr : defaultAtr;
 
     // Dynamic SL & TP (1.2x ATR SL, 2.5x ATR TP -> 1:2.08 RRR)
@@ -83,23 +84,19 @@ export class GoldAlphaStrategy implements Strategy {
 
     // -------------------------------------------------------------------------
     // Signal 1: Institutional Gold Bullish Expansion Signal (BUY)
-    // - Price strictly above EMA 200 AND EMA 20 > EMA 50
-    // - Price bounced/crossed above VWAP
-    // - RSI between 46 and 66 (healthy momentum)
-    // - ADX >= 22 (confirmed trend strength)
     // -------------------------------------------------------------------------
-    const isUptrend = currentClose > currentEma200 && currentEma20 > currentEma50;
+    const isUptrend = (!config.ENABLE_STRICT_MTF_GATE || currentClose > currentEma200) && (currentClose > currentEma50 && currentEma20 > currentEma50);
     const vwapBullishBounce = prevClose <= vwap && currentClose > vwap;
     const rsiBullishMomentum = prevRsi < 50 && currentRsi >= 48 && currentRsi < 66;
 
     if (isUptrend && (vwapBullishBounce || rsiBullishMomentum)) {
       if (context.activePosition?.action === 'SELL') {
-        return { action: 'CLOSE', instrument, strategy: this.name };
+        return { signal: 'CLOSE', confidence: 0.9, reason: 'Bullish expansion against short position', sl: 0, tp: 0 };
       }
       if (!context.activePosition) {
         const baseConf = isXau ? 0.85 : 0.78;
         const confidence = Math.min(0.95, baseConf + sessionBonus);
-        
+
         logger.info(
           `[${this.name}] ${instrument} Master BUY signal triggered. ` +
           `Close: ${currentClose.toFixed(2)}, VWAP: ${vwap.toFixed(2)}, ADX: ${adx.toFixed(1)}, RSI: ${currentRsi.toFixed(1)}, ` +
@@ -107,31 +104,28 @@ export class GoldAlphaStrategy implements Strategy {
         );
 
         return {
-          action: 'BUY',
-          instrument,
-          strategy: this.name,
+          signal: 'BUY',
           confidence,
+          reason: `Institutional Gold Master BUY (ADX: ${adx.toFixed(1)}, RSI: ${currentRsi.toFixed(1)}, SL: ${stopLossPips}p, TP: ${takeProfitPips}p)`,
+          sl: stopLossPips,
+          tp: takeProfitPips,
           stopLossPips,
           takeProfitPips,
-          reason: `Institutional Gold 50-Yr Master BUY (ADX: ${adx.toFixed(1)}, RSI: ${currentRsi.toFixed(1)}, SL: ${stopLossPips}p, TP: ${takeProfitPips}p)`,
+          atr: effectiveAtr,
         };
       }
     }
 
     // -------------------------------------------------------------------------
     // Signal 2: Institutional Gold Bearish Expansion Signal (SELL)
-    // - Price strictly below EMA 200 AND EMA 20 < EMA 50
-    // - Price rejection/crossed below VWAP
-    // - RSI between 34 and 54 (healthy bearish momentum)
-    // - ADX >= 22 (confirmed trend strength)
     // -------------------------------------------------------------------------
-    const isDowntrend = currentClose < currentEma200 && currentEma20 < currentEma50;
+    const isDowntrend = (!config.ENABLE_STRICT_MTF_GATE || currentClose < currentEma200) && (currentClose < currentEma50 && currentEma20 < currentEma50);
     const vwapBearishBounce = prevClose >= vwap && currentClose < vwap;
     const rsiBearishMomentum = prevRsi > 50 && currentRsi <= 52 && currentRsi > 34;
 
     if (isDowntrend && (vwapBearishBounce || rsiBearishMomentum)) {
       if (context.activePosition?.action === 'BUY') {
-        return { action: 'CLOSE', instrument, strategy: this.name };
+        return { signal: 'CLOSE', confidence: 0.9, reason: 'Bearish expansion against long position', sl: 0, tp: 0 };
       }
       if (!context.activePosition) {
         const baseConf = isXau ? 0.85 : 0.78;
@@ -144,18 +138,41 @@ export class GoldAlphaStrategy implements Strategy {
         );
 
         return {
-          action: 'SELL',
-          instrument,
-          strategy: this.name,
+          signal: 'SELL',
           confidence,
+          reason: `Institutional Gold Master SELL (ADX: ${adx.toFixed(1)}, RSI: ${currentRsi.toFixed(1)}, SL: ${stopLossPips}p, TP: ${takeProfitPips}p)`,
+          sl: stopLossPips,
+          tp: takeProfitPips,
           stopLossPips,
           takeProfitPips,
-          reason: `Institutional Gold 50-Yr Master SELL (ADX: ${adx.toFixed(1)}, RSI: ${currentRsi.toFixed(1)}, SL: ${stopLossPips}p, TP: ${takeProfitPips}p)`,
+          atr: effectiveAtr,
         };
       }
     }
 
-    return null;
+    return { signal: 'NONE', confidence: 0, reason: 'No Gold Alpha expansion setup', sl: 0, tp: 0 };
+  }
+
+  public onCandle(candle: Candle, context: MarketContext): Signal | null {
+    const candles = context.historicalCandles && context.historicalCandles.length > 0
+      ? context.historicalCandles
+      : [candle];
+    const result = this.evaluate(candles, context);
+
+    if (result.signal === 'NONE') {
+      return null;
+    }
+
+    return {
+      strategy: this.name,
+      instrument: candle.instrument,
+      action: result.signal as 'BUY' | 'SELL' | 'CLOSE',
+      confidence: result.confidence,
+      reason: result.reason,
+      stopLossPips: result.stopLossPips ?? result.sl,
+      takeProfitPips: result.takeProfitPips ?? result.tp,
+      atr: result.atr,
+    };
   }
 
   private calculateEMA(closes: number[], period: number): number[] {

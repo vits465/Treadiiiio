@@ -1,0 +1,40 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+language: "en-US"
+tone_instructions: "Provide institutional-grade, highly precise code reviews focusing on algorithmic safety, risk constraints, financial calculation accuracy, and concurrency handling."
+
+reviews:
+  profile: "assertive"
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: false
+  review_status: true
+  collapse_walkthrough: false
+  auto_review:
+    enabled: true
+    drafts: false
+  path_filters:
+    - "!**/node_modules/**"
+    - "!**/package-lock.json"
+    - "!**/dist/**"
+    - "!**/dashboard/.next/**"
+    - "!**/ml-service/venv/**"
+    - "!**/*.db*"
+    - "!**/*.joblib"
+    - "!**/*.onnx"
+    - "!**/logs/**"
+  path_instructions:
+    - path: "src/engine/**"
+      instructions: |
+        Ensure all trade executions strictly enforce risk parameters, daily drawdown circuit breakers, and broker-level hard stops. Verify that equity calculations are robust against null/undefined ticks.
+    - path: "src/strategy/**"
+      instructions: |
+        Validate technical indicator bounds, slippage buffers, multi-timeframe confirmation rules, and spread friction models.
+    - path: "ml-service/**"
+      instructions: |
+        Verify feature alignment with training schemas, numerical stability of predictions, and fallback handling when inference encounters anomalous data.
+    - path: "dashboard/**"
+      instructions: |
+        Check for Next.js 14 App Router best practices, proper client/server boundary separation, WebSocket subscription cleanup, and responsive UX.
+
+chat:
+  auto_reply: true

@@ -23,6 +23,7 @@ import { StrategyAllocator } from './risk/strategyAllocator';
 import { StrategyRegistry } from './strategy/registry';
 import { RegimeRouter } from './analytics/regimeRouter';
 import { EngineScheduler } from './utils/scheduler';
+import { RiskManager } from './risk/riskManager';
 
 async function bootstrap() {
   logger.info('==================================================');
@@ -148,7 +149,6 @@ async function bootstrap() {
       TradingEngine.checkCircuitBreakers(currentEquity);
 
       // Evaluate daily profit target every tick to enable automatic offline transition
-      const { RiskManager } = require('./risk/riskManager');
       RiskManager.checkDailyProfitLock(TradingEngine.getBalance(), currentUnrealized, 'GLOBAL');
 
       // B. Process each instrument
@@ -160,8 +160,16 @@ async function bootstrap() {
         const candles = await PriceFeed.fetchCandles(pair, 100, config.CANDLE_GRANULARITY);
         if (candles.length < 30) continue;
 
+        // Phase 5.1: Volatility Circuit Breaker — Pause new entries if ATR spikes above 95th percentile
+        if (!RiskManager.checkVolatilityCircuitBreaker(pair, candles)) {
+          logger.warn(`[VOLATILITY BREAKER] Skipping new entries for ${pair} due to extreme volatility spike.`);
+          continue;
+        }
+
         // Fetch macro timeframe (Daily) for multi-timeframe trend filter
         const macroCandles = await PriceFeed.fetchCandles(pair, 30, '1day');
+        // Fetch 1-hour timeframe for hourly MTF trend confirmation
+        const hourlyCandles = await PriceFeed.fetchCandles(pair, 50, '1h');
 
         const latestCandle = candles[candles.length - 1];
 
@@ -171,6 +179,14 @@ async function bootstrap() {
           const closePrices = macroCandles.slice(-20).map(c => c.close);
           const sma20 = closePrices.reduce((a, b) => a + b, 0) / 20;
           macroTrend = latestCandle.close > sma20 ? 'UP' : 'DOWN';
+        }
+
+        let hourlyTrend: 'UP' | 'DOWN' | 'NEUTRAL' = 'NEUTRAL';
+        if (hourlyCandles.length >= 20) {
+          const hCloses = hourlyCandles.slice(-20).map(c => c.close);
+          const hSma20 = hCloses.reduce((a, b) => a + b, 0) / 20;
+          const latest1hClose = hourlyCandles[hourlyCandles.length - 1].close;
+          hourlyTrend = latest1hClose > hSma20 ? 'UP' : 'DOWN';
         }
 
         // VOLATILITY (ATR) Calculation
@@ -186,14 +202,10 @@ async function bootstrap() {
           }
           currentAtr = trs.reduce((a, b) => a + b, 0) / 14;
         }
-        const regimeInputs = {
-          atr20Day: currentAtr,
-          atrThresholdNormal: pair.includes('JPY') ? 0.15 : 0.0010,
-          atrThresholdVolatile: pair.includes('JPY') ? 0.30 : 0.0025,
-          rollingWinRate20Day: 0.55, // Placeholder, would come from DB
-          rollingSharpe20Day: 1.0,
-        };
-        const currentRegime = RegimeDetector.detectRegime(regimeInputs).regime;
+
+        // Regime Router: Classify pair into TRENDING / RANGING / HIGH_VOLATILITY
+        const regimeAnalysis = RegimeRouter.evaluateRegime(candles, pair);
+        const currentRegime = regimeAnalysis.regime;
 
         if (!TradingEngine.isPaused()) {
           for (const strategy of enabledStrategies) {
@@ -204,17 +216,37 @@ async function bootstrap() {
             let strategyCandles = candles;
             if (strategy.name === 'asian_killzone') {
               strategyCandles = await PriceFeed.fetchCandles(pair, 300, '5m');
+            } else if (strategy.name === 'scalping_1m') {
+              strategyCandles = await PriceFeed.fetchCandles(pair, 100, '1m');
             }
 
             const context: MarketContext = {
               historicalCandles: strategyCandles,
               macroCandles,
+              hourlyCandles,
+              hourlyTrend,
               currentQuote: quote,
               activePosition,
               accountEquity,
               openPositionsCount,
               currentRegime,
             };
+
+            // Regime Router Gate: check if strategy is allowed for current regime
+            if (!activePosition && !RegimeRouter.isStrategyAllowedForRegime(strategy.name, currentRegime)) {
+              logger.debug(`[REGIME ROUTER] ${strategy.name} skipped on ${pair} in ${currentRegime} regime.`);
+              RejectionLogger.log(
+                'RegimeRouter.strategyRouting',
+                currentRegime === 'HIGH_VOLATILITY' ? 'HIGH_VOLATILITY_REGIME' : 'REGIME_MISMATCH',
+                pair,
+                undefined,
+                strategy.name,
+                `Strategy ${strategy.name} not permitted in ${currentRegime} regime (ADX: ${regimeAnalysis.adx})`,
+                undefined,
+                currentRegime
+              );
+              continue;
+            }
 
             const evalCandle = strategyCandles[strategyCandles.length - 1] || latestCandle;
             const signal = strategy.onCandle(evalCandle, context);
@@ -228,9 +260,48 @@ async function bootstrap() {
               if (signal.action === 'CLOSE' && activePosition) {
                 await TradingEngine.closePosition(activePosition.id, quote, `Strategy signal CLOSE (${strategy.name})`);
               } else if ((signal.action === 'BUY' || signal.action === 'SELL') && !activePosition) {
-                // MTF Trend Alignment Filter
-                if ((signal.action === 'BUY' && macroTrend === 'DOWN') || (signal.action === 'SELL' && macroTrend === 'UP')) {
-                  logger.info(`[MTF TREND WARNING] Executing ${pair} ${signal.action} from ${strategy.name} — note counter-trend to Daily ${macroTrend} trend.`);
+                // Strict Daily MTF Trend Gate (if enabled)
+                if (config.ENABLE_STRICT_MTF_GATE) {
+                  if ((signal.action === 'BUY' && macroTrend === 'DOWN') || (signal.action === 'SELL' && macroTrend === 'UP')) {
+                    logger.warn(`[MTF TREND GATE] Suppressed ${pair} ${signal.action} from ${strategy.name} — entry prohibited against Daily ${macroTrend} trend.`);
+                    RejectionLogger.log(
+                      'MTFGate.dailyTrend',
+                      'MTF_TREND_MISMATCH',
+                      pair,
+                      signal.action,
+                      strategy.name,
+                      `Signal ${signal.action} opposes Daily ${macroTrend} trend`,
+                      signal.confidence,
+                      currentRegime
+                    );
+                    continue;
+                  }
+                }
+
+                // 1H MTF Trend Alignment Gate (if enabled)
+                if (config.ENABLE_1H_MTF_CONFIRMATION && hourlyTrend !== 'NEUTRAL') {
+                  if ((signal.action === 'BUY' && hourlyTrend === 'DOWN') || (signal.action === 'SELL' && hourlyTrend === 'UP')) {
+                    logger.warn(`[1H MTF TREND GATE] Suppressed ${pair} ${signal.action} from ${strategy.name} — entry prohibited against 1h ${hourlyTrend} trend.`);
+                    RejectionLogger.log(
+                      'MTFGate.1hTrend',
+                      'MTF_TREND_MISMATCH',
+                      pair,
+                      signal.action,
+                      strategy.name,
+                      `Signal ${signal.action} opposes 1H ${hourlyTrend} trend`,
+                      signal.confidence,
+                      currentRegime
+                    );
+                    continue;
+                  }
+                }
+
+                // Prevent opposite/hedging positions on the same currency pair
+                const samePairPositions = TradingEngine.getOpenPositions().filter(p => p.instrument === pair);
+                const hasOppositePosition = samePairPositions.some(p => p.action !== signal.action);
+                if (hasOppositePosition) {
+                  logger.warn(`[HEDGE GUARD] Suppressed ${pair} ${signal.action} from ${strategy.name} — opposite ${samePairPositions[0]?.action} position already active.`);
+                  continue;
                 }
 
                 await TradingEngine.executeOrder(
@@ -242,7 +313,8 @@ async function bootstrap() {
                   signal.requestedLots,
                   signal.tp1Pips,
                   signal.tp2Pips,
-                  StrategyAllocator.getStrategyRiskMultiplier(strategy.name, currentRegime)
+                  StrategyAllocator.getStrategyRiskMultiplier(strategy.name, currentRegime),
+                  signal.modelId
                 );
               }
             }
@@ -310,7 +382,8 @@ async function bootstrap() {
                   undefined,
                   undefined,
                   undefined,
-                  StrategyAllocator.getStrategyRiskMultiplier('ml_signal', currentRegime)
+                  StrategyAllocator.getStrategyRiskMultiplier('ml_signal', currentRegime),
+                  signal.modelId
                 );
               }
             }

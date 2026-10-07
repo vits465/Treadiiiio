@@ -1,6 +1,9 @@
 import os
 from models.xgboost_model import XGBoostModelManager
-from models.lstm_model import LSTMModelManager
+try:
+    from models.lstm_model import LSTMModelManager
+except Exception:
+    LSTMModelManager = None
 from database import get_db_connection
 from datetime import datetime
 import json
@@ -51,7 +54,8 @@ class ModelWrapper:
             with torch.no_grad():
                 probs = self.manager.model(X_seq).cpu().numpy()[0]
         else:
-            probs = self.manager.model.predict_proba(X)[0]
+            predictor = getattr(self.manager, 'calibrated_model', None) or self.manager.model
+            probs = predictor.predict_proba(X.astype(float))[0]
             
         import numpy as np
         pred_class = int(np.argmax(probs))
@@ -60,24 +64,25 @@ class ModelWrapper:
         class_map = {0: "SELL", 1: "HOLD", 2: "BUY"}
         action = class_map.get(pred_class, "HOLD")
 
-        # Concept Drift Detection
+        # Concept Drift Detection (check stationary indicators, exclude raw nominal price levels)
+        PRICE_FEATURES = {'sma_9', 'sma_21', 'ema_12', 'ema_26'}
         if self.manager.feature_stats:
             drift_detected = False
             for feature, stats in self.manager.feature_stats.items():
-                if feature in features_row:
+                if feature in features_row and feature not in PRICE_FEATURES:
                     live_val = features_row[feature].iloc[0] if hasattr(features_row[feature], 'iloc') else features_row[feature]
                     mean = stats['mean']
                     std = stats['std']
                     if std > 0:
                         z_score = abs(live_val - mean) / std
-                        if z_score > 3.0:
+                        if z_score > 3.5:
                             logger.warning(f"Drift detected in {feature}! Z-score: {z_score:.2f} (Live: {live_val:.3f}, Train Mean: {mean:.3f})")
                             drift_detected = True
             
             if drift_detected:
-                confidence -= 0.20
+                confidence -= 0.05
                 confidence = max(0.0, confidence)
-                logger.warning(f"Applied -0.20 drift penalty to {self.manager.instrument} prediction. New confidence: {confidence:.2f}")
+                logger.warning(f"Applied -0.05 drift penalty to {self.manager.instrument} prediction. New confidence: {confidence:.2f}")
 
         return action, confidence
 
@@ -106,13 +111,18 @@ def train_model(features_df, model_type: str, instrument: str) -> TrainResult:
         # Demote old models
         conn.execute("UPDATE ml_models SET is_active = 0 WHERE instrument = ?", (instrument,))
         
-        # Insert new model
+        # Insert new model with full versioning metadata
         shap_importance = json.dumps(metrics.get("top_features", {}))
         metrics_json = json.dumps(metrics)
+        training_window_json = json.dumps(metrics.get("training_window", {}))
+        calibration_data_json = json.dumps(manager.calibration_data if hasattr(manager, 'calibration_data') else {})
+        model_hash = metrics.get("model_hash", "")
+        onnx_path = metrics.get("onnx_path", "")
+
         conn.execute(
-            """INSERT INTO ml_models (model_id, instrument, trained_at, metrics, shap_importance, is_active)
-               VALUES (?, ?, ?, ?, ?, 1)""",
-            (model_id, instrument, datetime.utcnow().isoformat(), metrics_json, shap_importance)
+            """INSERT INTO ml_models (model_id, instrument, trained_at, metrics, shap_importance, is_active, model_hash, training_window, calibration_data, onnx_path)
+               VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?)""",
+            (model_id, instrument, datetime.utcnow().isoformat(), metrics_json, shap_importance, model_hash, training_window_json, calibration_data_json, onnx_path)
         )
         conn.commit()
 

@@ -26,7 +26,11 @@ export type RejectionReasonCode =
   | 'CORRELATION_CAP_EXCEEDED'
   | 'WIDE_SPREAD'
   | 'RECOVERY_DISABLED'
-  | 'DAILY_TRADES_LIMIT';
+  | 'DAILY_TRADES_LIMIT'
+  | 'REGIME_MISMATCH'
+  | 'HIGH_VOLATILITY_REGIME'
+  | 'MTF_TREND_MISMATCH'
+  | 'MAX_HOLDING_TIME';
 
 /**
  * Logs a trade rejection into the filter_rejections table for audit purposes.
@@ -39,12 +43,13 @@ export class RejectionLogger {
     direction?: string,
     strategy?: string,
     details?: string,
-    mlConfidence?: number
+    mlConfidence?: number,
+    regime?: string
   ): void {
     try {
       db.prepare(`
-        INSERT INTO filter_rejections (id, timestamp, filter_name, reason_code, instrument, direction, strategy, details, ml_confidence)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO filter_rejections (id, timestamp, filter_name, reason_code, instrument, direction, strategy, details, ml_confidence, regime)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         uuidv4(),
         new Date().toISOString(),
@@ -54,7 +59,8 @@ export class RejectionLogger {
         direction || null,
         strategy || null,
         details || null,
-        mlConfidence ?? null
+        mlConfidence ?? null,
+        regime || null
       );
     } catch (err) {
       logger.debug(`Failed to log rejection: ${err}`);

@@ -75,6 +75,45 @@ export class TimeFilter {
   }
 
   /**
+   * Checks if current time is within Friday close to Sunday open weekend blackout in UTC.
+   * - Friday 20:00 UTC through Sunday 22:00 UTC
+   */
+  public static isWeekendClose(date: Date = new Date()): boolean {
+    const day = date.getUTCDay(); // 0 = Sun, 5 = Fri, 6 = Sat
+    const hour = date.getUTCHours();
+
+    // Friday after 20:00 UTC
+    if (day === 5 && hour >= 20) return true;
+    // Saturday all day
+    if (day === 6) return true;
+    // Sunday before 22:00 UTC
+    if (day === 0 && hour < 22) return true;
+
+    return false;
+  }
+
+  /**
+   * Checks if Sunday market open has occurred (Sunday 22:00 UTC or later).
+   */
+  public static isSundayOpen(date: Date = new Date()): boolean {
+    const day = date.getUTCDay();
+    const hour = date.getUTCHours();
+    return day === 0 && hour >= 22;
+  }
+
+  /**
+   * Checks if time is in the daily bank rollover window (21:55 - 22:05 UTC).
+   * Spreads typically widen dramatically during this window.
+   */
+  public static isMidnightRollover(date: Date = new Date()): boolean {
+    const hour = date.getUTCHours();
+    const min = date.getUTCMinutes();
+    const totalMinutes = hour * 60 + min;
+    // 21:55 = 1315 min, 22:05 = 1325 min
+    return totalMinutes >= 1315 && totalMinutes <= 1325;
+  }
+
+  /**
    * Main entry point to check all time-based filters.
    * Returns an object with { allowed: boolean, reason?: string }
    */
@@ -85,6 +124,14 @@ export class TimeFilter {
 
     if (!this.isValidTradingDay(date)) {
       return { allowed: false, reason: 'OUTSIDE_TRADING_DAYS' };
+    }
+
+    if (config.HOLIDAY_GUARD_ENABLED && this.isWeekendClose(date)) {
+      return { allowed: false, reason: 'WEEKEND_CLOSE' };
+    }
+
+    if (config.HOLIDAY_GUARD_ENABLED && this.isMidnightRollover(date)) {
+      return { allowed: false, reason: 'MIDNIGHT_ROLLOVER' };
     }
 
     if (!this.isWithinActiveSession(date)) {

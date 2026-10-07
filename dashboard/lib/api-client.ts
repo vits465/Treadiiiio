@@ -26,6 +26,7 @@ export interface Position {
   unrealizedPnl: number;
   openedAt: string;
   source: string; // strategy name or ML model id
+  strategy?: string;
   units: number;
   stopLoss: number | null;
   takeProfit: number | null;
@@ -287,6 +288,13 @@ export const getRiskStatus = () => apiFetch<RiskStatus>("/api/risk-status");
 export interface BotStatus {
   paused: boolean;
   uptime: number;
+  balance?: number;
+  equity?: number;
+  tradeDirection?: string;
+  maxDailyTrades?: number;
+  todayTradesCount?: number;
+  mt5Account?: string;
+  mt5Server?: string;
 }
 
 export const getBotStatus = () => apiFetch<BotStatus>("/api/bot/status");
@@ -316,6 +324,11 @@ export interface ConfigData {
   TELEGRAM_BOT_TOKEN: string;
   TELEGRAM_CHAT_ID: string;
   RISK_DAILY_PROFIT_TARGET_USD?: number;
+  TRADE_DIRECTION?: 'BUY_ONLY' | 'SELL_ONLY' | 'BOTH';
+  ENABLE_STRICT_MTF_GATE?: boolean;
+  RISK_MAX_DAILY_TRADES?: number;
+  MT5_ACCOUNT?: string;
+  MT5_SERVER?: string;
 }
 
 export const getConfig = () => apiFetch<ConfigData>("/api/config");
@@ -355,6 +368,16 @@ export interface LogRecord {
 
 export const getLogs = () => apiFetch<LogRecord[]>("/api/logs");
 
+export const getQuarantine = () => apiFetch<{ quarantined: string[] }>("/api/quarantine");
+export const reEnableStrategy = (strategy: string) =>
+  apiFetch<{ success: boolean; strategy: string; quarantined: string[] }>("/api/quarantine/reenable", {
+    method: "POST",
+    body: JSON.stringify({ strategy }),
+  });
+export const getAuditActions = (limit = 30) => apiFetch<any[]>(`/api/audit-actions?limit=${limit}`);
+export const getDriftStatus = (instrument = "XAU/USD") => apiFetch<any>(`/api/drift?instrument=${instrument}`);
+export const getModels = () => apiFetch<any[]>("/api/models");
+
 type LiveEvent =
   | { type: "position_update"; data: Position }
   | { type: "trade_closed"; data: Trade }
@@ -366,11 +389,15 @@ export function connectLiveFeed(onEvent: (event: LiveEvent) => void): () => void
   let ws: WebSocket | null = null;
   let timer: NodeJS.Timeout | null = null;
   let isClosed = false;
+  let retryCount = 0;
 
   const connect = () => {
-    if (isClosed) return;
+    if (isClosed || typeof window === 'undefined' || !window.WebSocket) return;
     try {
       ws = new WebSocket(WS_URL);
+      ws.onopen = () => {
+        retryCount = 0;
+      };
       ws.onmessage = (msg) => {
         try {
           const parsed = JSON.parse(msg.data) as LiveEvent;
@@ -378,13 +405,21 @@ export function connectLiveFeed(onEvent: (event: LiveEvent) => void): () => void
         } catch {}
       };
       ws.onclose = () => {
-        if (!isClosed) timer = setTimeout(connect, 1000);
+        if (!isClosed && retryCount < 5) {
+          retryCount++;
+          const delay = Math.min(30000, 2000 * Math.pow(2, retryCount));
+          timer = setTimeout(connect, delay);
+        }
       };
       ws.onerror = () => {
         if (ws) ws.close();
       };
     } catch {
-      if (!isClosed) timer = setTimeout(connect, 1000);
+      if (!isClosed && retryCount < 5) {
+        retryCount++;
+        const delay = Math.min(30000, 2000 * Math.pow(2, retryCount));
+        timer = setTimeout(connect, delay);
+      }
     }
   };
 

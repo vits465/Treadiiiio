@@ -11,7 +11,7 @@ async function main() {
     candleCount: 500,
     slippagePips: 1.5,
     commissionUsdPerLot: 3.0
-  }, 10);
+  }, 100);
 
   console.log('\n--- BACKTEST RESULTS ---');
   console.log(`Median Return: ${result.medianReturnPct.toFixed(2)}%`);

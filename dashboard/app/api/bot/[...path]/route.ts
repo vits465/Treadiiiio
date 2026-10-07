@@ -23,6 +23,14 @@ export async function POST(req: NextRequest, { params }: { params: { path: strin
   return handleProxy(req, params.path);
 }
 
+export async function PATCH(req: NextRequest, { params }: { params: { path: string[] } }) {
+  return handleProxy(req, params.path);
+}
+
+export async function PUT(req: NextRequest, { params }: { params: { path: string[] } }) {
+  return handleProxy(req, params.path);
+}
+
 export async function DELETE(req: NextRequest, { params }: { params: { path: string[] } }) {
   return handleProxy(req, params.path);
 }

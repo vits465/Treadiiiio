@@ -69,12 +69,16 @@ export class MT5Client {
   ): Promise<MT5OrderResponse | null> {
     if (config.USE_SIMULATOR) {
       logger.info(`[SIMULATOR] Placed mock ${action} order for ${volume} ${instrument}`);
-      const quote = await this.getQuote(instrument);
+      let fillPrice = requestedPrice;
+      if (fillPrice === undefined) {
+        const quote = await this.getQuote(instrument);
+        fillPrice = quote ? (action === 'BUY' ? quote.ask : quote.bid) : 1.1000;
+      }
       return {
         order_id: `mock_${Date.now()}`,
         instrument,
         action,
-        price: quote ? (action === 'BUY' ? quote.ask : quote.bid) : 1.1000,
+        price: fillPrice,
         volume
       };
     }
@@ -121,14 +125,14 @@ export class MT5Client {
     }
   }
 
-  public static async closeOrder(orderId: string): Promise<boolean> {
+  public static async closeOrder(orderId: string, volume?: number): Promise<boolean> {
     if (config.USE_SIMULATOR) {
       logger.info(`[SIMULATOR] Closed mock order ${orderId}`);
       return true;
     }
     try {
-      logger.info(`[MT5] Closing order ${orderId}...`);
-      await this.withRetry(() => axios.post(`${this.baseURL}/close`, { order_id: orderId }, {
+      logger.info(`[MT5] Closing order ${orderId}${volume ? ` (partial volume: ${volume})` : ''}...`);
+      await this.withRetry(() => axios.post(`${this.baseURL}/close`, { order_id: orderId, volume }, {
         headers: { 'X-API-Key': config.API_SECRET_KEY }
       }));
       return true;
@@ -139,23 +143,26 @@ export class MT5Client {
   }
 
   public static async closePartialOrder(orderId: string, volume: number): Promise<boolean> {
+    return this.closeOrder(orderId, volume);
+  }
+
+  public static async modifyOrder(orderId: string, sl?: number, tp?: number): Promise<boolean> {
     if (config.USE_SIMULATOR) {
-      logger.info(`[SIMULATOR] Partial closed ${volume} lots for mock order ${orderId}`);
       return true;
     }
     try {
-      logger.info(`[MT5] Partial closing ${volume} lots for order ${orderId}...`);
-      await this.withRetry(() => axios.post(`${this.baseURL}/close`, { order_id: orderId, volume }, {
+      await this.withRetry(() => axios.post(`${this.baseURL}/modify`, { order_id: orderId, sl, tp }, {
         headers: { 'X-API-Key': config.API_SECRET_KEY }
       }));
+      logger.info(`[MT5] Successfully modified order ${orderId} (SL: ${sl ?? 'UNCHANGED'}, TP: ${tp ?? 'UNCHANGED'})`);
       return true;
     } catch (error: any) {
-      logger.error(`[MT5] Partial close order failed: ${error.response?.data?.detail || error.message}`);
+      logger.warn(`[MT5] Modify order ${orderId} failed: ${error.response?.data?.detail || error.message}`);
       return false;
     }
   }
 
-  public static async getPositions(): Promise<MT5Position[]> {
+  public static async getPositions(): Promise<MT5Position[] | null> {
     if (config.USE_SIMULATOR) {
       return []; // Return empty mock positions array
     }
@@ -166,7 +173,7 @@ export class MT5Client {
       return response.data;
     } catch (error: any) {
       logger.error(`[MT5] Failed to get positions: ${error.message}`);
-      return [];
+      return null;
     }
   }
 

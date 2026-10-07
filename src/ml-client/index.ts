@@ -101,6 +101,7 @@ export class MLClient {
         atr: prediction.atr,          // ← bug fix: was silently dropped before
         stopLossPips: prediction.stop_loss_pips,
         takeProfitPips: prediction.take_profit_pips,
+        modelId: prediction.model_id,
       };
     } catch (error: any) {
       if (error.response && error.response.status === 404) {
@@ -111,15 +112,16 @@ export class MLClient {
       }
 
       // Execute local ONNX/Heuristic predictor fallback
-      const fallbackPrediction = OnnxFallbackClient.predict(instrument, candles);
+      const fallbackPrediction = await OnnxFallbackClient.predict(instrument, candles);
       if (fallbackPrediction.action !== 'HOLD' && fallbackPrediction.confidence >= config.ML_MIN_CONFIDENCE) {
         return {
           action: fallbackPrediction.action as SignalAction,
           instrument,
-          strategy: 'ml_xgb_fallback',
+          strategy: fallbackPrediction.source === 'onnx_fallback' ? 'ml_xgb_onnx' : 'ml_xgb_fallback',
           confidence: fallbackPrediction.confidence,
           stopLossPips: 20,
           takeProfitPips: 40,
+          modelId: fallbackPrediction.model_id,
         };
       }
       return null;

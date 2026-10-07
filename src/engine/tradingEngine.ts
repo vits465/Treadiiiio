@@ -1,7 +1,7 @@
 import { db } from '../db';
 import { config } from '../config';
 import { logger } from '../logger';
-import { Quote } from '../data/priceFeed';
+import { PriceFeed, Quote } from '../data/priceFeed';
 import { PositionInfo } from '../strategy/strategy.interface';
 import { RiskManager } from '../risk/riskManager';
 import { TimeFilter } from '../risk/timeFilter';
@@ -11,6 +11,7 @@ import { EventEmitter } from 'events';
 import { MT5Client } from '../broker/mt5Client';
 import { TelegramNotifier } from '../notifier/telegram';
 import { RejectionLogger } from '../risk/rejectionLogger';
+import { SymbolNormalizer } from '../utils/symbolNormalizer';
 
 export const engineEvents = new EventEmitter();
 
@@ -180,7 +181,8 @@ export class TradingEngine {
     requestedLots?: number,
     tp1Pips?: number,
     tp2Pips?: number,
-    riskMultiplier: number = 1.0
+    riskMultiplier: number = 1.0,
+    modelId?: string
   ): Promise<string | null> {
     if (this.paused) {
       logger.debug('Engine is paused, rejecting order.');
@@ -191,23 +193,45 @@ export class TradingEngine {
       return null;
     }
 
-    // Area 4: Consecutive-loss cooldown
-    if (!RiskManager.checkConsecutiveLossCooldown(instrument, strategy)) {
+    const isManual = strategy === 'manual';
+
+    // Area 4: Consecutive-loss cooldown (applies to automated strategies)
+    if (!isManual && !RiskManager.checkConsecutiveLossCooldown(instrument, strategy)) {
       return null;
     }
 
-    const timeCheck = TimeFilter.canTrade();
-    if (!timeCheck.allowed) {
-      logger.warn(`[TIME FILTER] Rejected automated ${action} signal for ${instrument}. Reason: ${timeCheck.reason}`);
-      RejectionLogger.log('TradingEngine.timeFilter', timeCheck.reason as any || 'TIME_FILTER', instrument, action, strategy, 'Outside allowed trading window');
+    // Phase 5.3: Strategy Quarantine check (rolling 30-trade PF < 1.0)
+    if (!isManual && !RiskManager.checkStrategyQuarantine(strategy, instrument)) {
       return null;
     }
 
-    const newsCheck = await NewsFilter.canTrade(instrument);
-    if (!newsCheck.allowed) {
-      logger.warn(`[NEWS FILTER] Rejected automated ${action} signal for ${instrument}. Reason: ${newsCheck.reason}`);
-      RejectionLogger.log('TradingEngine.newsFilter', 'NEWS_WINDOW', instrument, action, strategy, newsCheck.reason);
-      return null;
+    if (!isManual) {
+      const timeCheck = TimeFilter.canTrade();
+      if (!timeCheck.allowed) {
+        logger.warn(`[TIME FILTER] Rejected automated ${action} signal for ${instrument}. Reason: ${timeCheck.reason}`);
+        RejectionLogger.log('TradingEngine.timeFilter', timeCheck.reason as any || 'TIME_FILTER', instrument, action, strategy, 'Outside allowed trading window');
+        return null;
+      }
+
+      const newsCheck = await NewsFilter.canTrade(instrument);
+      if (!newsCheck.allowed) {
+        logger.warn(`[NEWS FILTER] Rejected automated ${action} signal for ${instrument}. Reason: ${newsCheck.reason}`);
+        RejectionLogger.log('TradingEngine.newsFilter', 'NEWS_WINDOW', instrument, action, strategy, newsCheck.reason);
+        return null;
+      }
+
+      const sentimentCheck = await NewsFilter.validateSentimentAlignment(instrument, action);
+      if (!sentimentCheck.aligned) {
+        logger.warn(`[NEWS SENTIMENT GATE] Rejected automated ${action} signal for ${instrument}. Reason: ${sentimentCheck.reason}`);
+        RejectionLogger.log('TradingEngine.newsSentiment', 'NEWS_WINDOW', instrument, action, strategy, sentimentCheck.reason);
+        return null;
+      }
+
+      if (sentimentCheck.confidenceDelta !== 0) {
+        const currentConf = mlConfidence ?? 0.70;
+        mlConfidence = Math.min(1.0, Math.max(0.0, currentConf + sentimentCheck.confidenceDelta));
+        logger.info(`[NEWS SENTIMENT] Adjusted signal confidence for ${instrument} (${action}) by ${sentimentCheck.confidenceDelta >= 0 ? '+' : ''}${sentimentCheck.confidenceDelta}. New confidence: ${mlConfidence.toFixed(2)}.`);
+      }
     }
 
     const openCount = this.getOpenPositionsCount();
@@ -216,11 +240,20 @@ export class TradingEngine {
       return null;
     }
 
-    if (!RiskManager.checkDailyMaxTrades(config.RISK_MAX_DAILY_TRADES || 5, instrument)) {
+    if (!isManual && !RiskManager.checkDailyMaxTrades(config.RISK_MAX_DAILY_TRADES || 30, instrument)) {
       return null;
     }
 
     const openPositions = this.getOpenPositions();
+    
+    // Multiple orders guard: allow up to RISK_MAX_CONCURRENT_POSITIONS orders on same pair
+    const samePairPositions = openPositions.filter(p => p.instrument === instrument);
+    const maxSamePairOrders = Math.min(5, config.RISK_MAX_CONCURRENT_POSITIONS);
+    if (samePairPositions.length >= maxSamePairOrders) {
+      logger.warn(`[MULTIPLE ORDERS GUARD] ${instrument} already has ${samePairPositions.length}/${maxSamePairOrders} active positions. Rejecting new ${action} signal.`);
+      return null;
+    }
+
     const currentUnrealized = openPositions.reduce((acc, pos) => acc + pos.unrealizedPnL, 0);
     
     if (!RiskManager.checkDailyProfitLock(this.balance, currentUnrealized, instrument, mlConfidence, strategy)) {
@@ -235,29 +268,34 @@ export class TradingEngine {
       return null;
     }
 
-    if (!RiskManager.checkCorrelationExposure(instrument, openPositions, action)) {
+    if (!isManual && !RiskManager.checkCorrelationExposure(instrument, openPositions, action)) {
       return null;
     }
 
-    const isJpy = instrument.includes('JPY');
-    const isXau = instrument.includes('XAU');
-    const pipSize = (isJpy || isXau) ? 0.01 : 0.0001;
-    
-    // To achieve a ~75% win rate (3-4 wins out of 5) in a random walk, we set SL to be 3x larger than TP.
-    // This also has the side effect of making the lot size 3x smaller!
-    let slPips = stopLossPips || (isXau ? 900 : 45);
-    let tpPips = takeProfitPips || (isXau ? 300 : 15);
+    // Phase 5.4: Correlation-Aware Net Group Exposure Guard
+    if (!isManual && !RiskManager.checkCorrelationGroupExposure(instrument, openPositions, action)) {
+      return null;
+    }
 
-    if (config.USE_ATR_SIZING && atr && atr > 0) {
+    const isJpy = SymbolNormalizer.isJpy(instrument);
+    const isXau = SymbolNormalizer.isGold(instrument);
+    const pipSize = SymbolNormalizer.getPipSize(instrument);
+    const contractSize = SymbolNormalizer.getContractSize(instrument);
+    
+    // Respect strategy-calibrated Stop Loss and Take Profit
+    let slPips = stopLossPips;
+    let tpPips = takeProfitPips;
+
+    if ((!slPips || !tpPips) && config.USE_ATR_SIZING && atr && atr > 0) {
       // ATR is in raw price points. Convert to pips.
       const atrPips = atr / pipSize;
-      slPips = atrPips * config.ATR_SL_MULTIPLIER;
-      tpPips = atrPips * config.ATR_TP_MULTIPLIER;
-
-      slPips = Math.round(slPips * 10) / 10;
-      tpPips = Math.round(tpPips * 10) / 10;
-      logger.info(`[ATR SIZING] Used ATR (${atr.toFixed(5)}) for ${instrument} to calculate SL: ${slPips} pips, TP: ${tpPips} pips`);
+      slPips = slPips || Math.round(atrPips * config.ATR_SL_MULTIPLIER * 10) / 10;
+      tpPips = tpPips || Math.round(atrPips * config.ATR_TP_MULTIPLIER * 10) / 10;
+      logger.info(`[ATR SIZING] Used ATR (${atr.toFixed(5)}) fallback for ${instrument} to calculate SL: ${slPips} pips, TP: ${tpPips} pips`);
     }
+
+    slPips = slPips || (isXau ? 20 : 25);
+    tpPips = tpPips || (isXau ? 40 : 50);
     
     // Area 1: Dynamic sizing with confidence + volatility scalars
     const currentPrice = action === 'BUY' ? quote.ask : quote.bid;
@@ -270,30 +308,45 @@ export class TradingEngine {
       currentPrice    // used for USD/XXX quote currency conversion
     );
 
-    const contractSize = isXau ? 100 : 100000;
     let unitsToTrade = sized.units;
     
-    // Check if strategy requested specific lot size (e.g. 0.02 lots for Asian Kill Zone)
+    // Check if strategy requested specific lot size (e.g. 0.02 lots for Asian Kill Zone or test)
     if (requestedLots && requestedLots > 0) {
       unitsToTrade = requestedLots * contractSize;
     } else if (unitsToTrade <= 0) {
-      const minLots = isXau ? 0.01 : 0.01;
-      unitsToTrade = minLots * contractSize;
+      // RiskManager rejected or budget exceeded - cancel trade
+      logger.warn(`[ORDER CANCELLED] Sizing units is 0 for ${instrument}. Risk budget or confidence gate prevented trade.`);
+      return null;
     }
 
     // Apply strategy budget / regime risk multiplier
-    unitsToTrade = unitsToTrade * riskMultiplier;
+    if (!requestedLots) {
+      unitsToTrade = unitsToTrade * riskMultiplier;
+    }
 
     // Final total-open-risk check using the actual risk that will be used
     if (!RiskManager.checkTotalOpenRisk(this.balance, openPositions, sized.riskPctUsed, instrument)) {
       return null;
     }
 
-    // Strict Lot Size Bounds — strictly bounded between 0.01 and 0.07 lots
     let volume = unitsToTrade / contractSize;
     volume = Math.round(volume * 100) / 100;
-    if (volume < 0.01) volume = 0.01;
-    if (volume > 0.07) volume = 0.07;
+    if (volume < 0.01) {
+      if (requestedLots && requestedLots >= 0.01) {
+        volume = requestedLots;
+      } else {
+        logger.warn(`[ORDER CANCELLED] Volume ${volume} below minimum 0.01 lot.`);
+        return null;
+      }
+    }
+    const maxLots = 10.0;
+    if (volume > maxLots) volume = maxLots;
+
+    // Phase 5.5: Margin & Leverage Guard for MT5 path
+    const openEquity = this.balance + currentUnrealized;
+    if (!RiskManager.checkMarginLeverageGuard(this.balance, openEquity, volume * contractSize, instrument, currentPrice, openPositions)) {
+      return null;
+    }
 
     // Call MT5 API (handles both live and simulator modes)
     const mt5Result = await MT5Client.placeOrder(instrument, action, volume, slPips, tpPips, currentPrice);
@@ -342,17 +395,18 @@ export class TradingEngine {
     }
 
     const initialRiskUsd = slPrice ? Math.abs(entryPrice - slPrice) * unitsToTrade : (isXau ? 2.0 * unitsToTrade : 0.0020 * unitsToTrade);
+    const isSim = config.USE_SIMULATOR ? 1 : 0;
 
     db.prepare(`
-      INSERT INTO positions (id, instrument, action, entry_time, entry_price, units, unrealized_pnl, stop_loss, take_profit, tp1_price, tp2_price, partial_tp_hit, initial_units, strategy, broker_order_id, initial_risk_usd, partial_booked)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, 0)
-    `).run(orderId, instrument, action, entryTime, entryPrice, unitsToTrade, 0, slPrice, tpPrice, tp1Price, tp2Price, unitsToTrade, strategy, brokerOrderId, initialRiskUsd);
+      INSERT OR REPLACE INTO positions (id, instrument, action, entry_time, entry_price, units, unrealized_pnl, stop_loss, take_profit, tp1_price, tp2_price, partial_tp_hit, initial_units, strategy, broker_order_id, initial_risk_usd, partial_booked, is_simulator)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, 0, ?)
+    `).run(orderId, instrument, action, entryTime, entryPrice, unitsToTrade, 0, slPrice, tpPrice, tp1Price, tp2Price, unitsToTrade, strategy, brokerOrderId, initialRiskUsd, isSim);
 
-    // Persist actual risk_pct taken for downstream accounting (recovery budget, audits)
+    // Persist actual risk_pct taken for downstream accounting (recovery budget, audits, ML versioning)
     db.prepare(`
-      INSERT INTO trades (id, instrument, action, entry_time, entry_price, units, strategy, status, broker_order_id, risk_pct)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 'OPEN', ?, ?)
-    `).run(orderId, instrument, action, entryTime, entryPrice, unitsToTrade, strategy, brokerOrderId, sized.riskPctUsed);
+      INSERT OR IGNORE INTO trades (id, instrument, action, entry_time, entry_price, units, strategy, status, broker_order_id, risk_pct, is_simulator, model_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'OPEN', ?, ?, ?, ?)
+    `).run(orderId, instrument, action, entryTime, entryPrice, unitsToTrade, strategy, brokerOrderId, sized.riskPctUsed, isSim, modelId || null);
 
     logger.info(`[ORDER EXECUTED] MT5 Ticket: ${brokerOrderId} | ${action} ${volume.toFixed(2)} lots ${instrument} @ ${entryPrice.toFixed((isJpy || isXau) ? 3 : 5)} | SL: ${slPrice} | TP: ${tpPrice} | Risk: ${sized.riskPctUsed.toFixed(3)}%`);
 
@@ -387,16 +441,18 @@ export class TradingEngine {
       }
     }
 
-    const isJpy = pos.instrument.includes('JPY');
+    const decimals = SymbolNormalizer.getPriceDecimals(pos.instrument);
     let exitPrice = pos.action === 'BUY' ? quote.bid : quote.ask;
-    exitPrice = parseFloat(exitPrice.toFixed(isJpy ? 3 : 5));
+    exitPrice = parseFloat(exitPrice.toFixed(decimals));
 
-    let pnl = 0;
-    if (pos.action === 'BUY') {
-      pnl = (exitPrice - pos.entry_price) * pos.units;
-    } else {
-      pnl = (pos.entry_price - exitPrice) * pos.units;
-    }
+    const pnl = SymbolNormalizer.calculatePnl(
+      pos.instrument,
+      pos.action as 'BUY' | 'SELL',
+      pos.entry_price,
+      exitPrice,
+      pos.units,
+      quote.bid
+    );
 
     const exitTime = new Date().toISOString();
 
@@ -415,7 +471,7 @@ export class TradingEngine {
       engineEvents.emit('trade_closed', closedTrade);
     }
 
-    logger.info(`[POSITION CLOSED] ${pos.action} ${pos.instrument} closed @ ${exitPrice.toFixed(isJpy ? 3 : 5)} | Realized PnL: $${pnl.toFixed(2)} | Reason: ${reason}`);
+    logger.info(`[POSITION CLOSED] ${pos.action} ${pos.instrument} closed @ ${exitPrice.toFixed(decimals)} | Realized PnL: $${pnl.toFixed(2)} | Reason: ${reason}`);
 
     return pnl;
   }
@@ -433,6 +489,10 @@ export class TradingEngine {
 
     // Fetch MT5 live positions
     const mt5Positions = await MT5Client.getPositions();
+    if (mt5Positions === null) {
+      // MT5 bridge temporarily unavailable, do NOT assume positions closed
+      return;
+    }
     const mt5Ids = new Set(mt5Positions.map(p => p.order_id));
 
     for (const pos of localPositions) {
@@ -467,11 +527,29 @@ export class TradingEngine {
       // --- 1:2 RRR 50% Partial Profit Booking & 1:3 RRR Full Exit ---
       const posDetails = db.prepare(`SELECT initial_risk_usd, partial_booked, partial_tp_hit, tp1_price, tp2_price FROM positions WHERE id = ?`).get(pos.id) as any;
       const initialRiskUsd = posDetails?.initial_risk_usd || 0;
-      const partialBooked = posDetails?.partial_booked || posDetails?.partial_tp_hit || 0;
+      let partialBooked = posDetails?.partial_booked || posDetails?.partial_tp_hit || 0;
       const tp1Price = posDetails?.tp1_price || pos.tp1Price;
       const tp2Price = posDetails?.tp2_price || pos.tp2Price;
 
       const currentPrice = quote ? (pos.action === 'BUY' ? quote.bid : quote.ask) : pos.entryPrice;
+
+      // 0. Max Holding Time Exit Check (Configurable globally and per-strategy)
+      if (pos.entryTime) {
+        const entryTimeMs = new Date(pos.entryTime).getTime();
+        const nowMs = Date.now();
+        const holdingMinutes = (nowMs - entryTimeMs) / (60 * 1000);
+        const maxHoldingMinutes = pos.strategy === 'scalping_1m'
+          ? (config.SCALPER_TIME_STOP_MINUTES || 15)
+          : (config.MAX_HOLDING_TIME_MINUTES || 1440);
+
+        if (maxHoldingMinutes > 0 && holdingMinutes >= maxHoldingMinutes) {
+          logger.info(`[MAX HOLDING TIME] Position ${pos.id} (${pos.instrument}, ${pos.strategy}) open for ${Math.round(holdingMinutes)}m (Max: ${maxHoldingMinutes}m). Closing position...`);
+          if (quote) {
+            await this.closePosition(pos.id, quote, `Max Holding Time (${maxHoldingMinutes}m) Exceeded`);
+            continue;
+          }
+        }
+      }
 
       // 1. Check SL Hit (including after SL is moved to Break-Even)
       if (quote && pos.stopLoss) {
@@ -485,10 +563,12 @@ export class TradingEngine {
 
       // 2. 1:2 RRR 50% Partial Close Check
       let tp1Hit = false;
-      if (tp1Price) {
-        tp1Hit = pos.action === 'BUY' ? currentPrice >= tp1Price : currentPrice <= tp1Price;
-      } else if (initialRiskUsd > 0) {
-        tp1Hit = unrealizedPnL >= initialRiskUsd * 2;
+      if (config.ENABLE_PARTIAL_PROFIT_AT_1R) {
+        if (tp1Price) {
+          tp1Hit = pos.action === 'BUY' ? currentPrice >= tp1Price : currentPrice <= tp1Price;
+        } else if (initialRiskUsd > 0) {
+          tp1Hit = unrealizedPnL >= initialRiskUsd * 2;
+        }
       }
 
       if (!partialBooked && tp1Hit) {
@@ -507,6 +587,12 @@ export class TradingEngine {
           SET units = ?, stop_loss = entry_price, partial_booked = 1, partial_tp_hit = 1
           WHERE id = ?
         `).run(halfUnits, pos.id);
+
+        pos.units = halfUnits;
+        pos.stopLoss = pos.entryPrice;
+        (pos as any).partialBooked = 1;
+        (pos as any).partialTpHit = 1;
+        partialBooked = 1;
 
         TelegramNotifier.sendMessage(
           `🟢 *PARTIAL PROFIT BOOKED (1:2 RRR)*\n` +
@@ -535,9 +621,9 @@ export class TradingEngine {
         }
       }
 
-      // Cash Take Profit check (e.g. $10.00 target cash profit per trade)
+      // Cash Take Profit check (only if not managing 1:2/1:3 RRR partial exit system)
       const maxTradeProfitUsd = config.RISK_TRADE_TAKE_PROFIT_USD;
-      if (unrealizedPnL >= maxTradeProfitUsd && maxTradeProfitUsd > 0) {
+      if (!tp2Price && !partialBooked && unrealizedPnL >= maxTradeProfitUsd && maxTradeProfitUsd > 0) {
         logger.info(`[CASH TAKE PROFIT] Position ${pos.id} reached profit of $${unrealizedPnL.toFixed(2)} (Target: $${maxTradeProfitUsd.toFixed(2)}). Closing to lock in profit...`);
         if (quote) {
           await this.closePosition(pos.id, quote, 'Cash Take Profit Hit');
@@ -545,17 +631,20 @@ export class TradingEngine {
         }
       }
 
-      // --- Trailing Stop Logic ---
+      // --- Trailing Stop & Break-Even Profit Locking ---
       if (quote) {
         const isJpy = pos.instrument.includes('JPY');
-        const pipSize = isJpy ? 0.01 : 0.0001;
+        const isXau = pos.instrument.includes('XAU');
+        const pipSize = isXau ? 0.10 : (isJpy ? 0.01 : 0.0001);
         const currentPrice = pos.action === 'BUY' ? quote.bid : quote.ask;
         
-        // Trailing Stop Logic (Trail by 15 pips once in 15 pips profit)
-        const trailingPips = 15; 
+        // Trailing Stop parameters: activate after 12 pips profit ($1.20), trail by 10 pips ($1.00)
+        const activationPips = isXau ? 12 : 8;
+        const trailingPips = isXau ? 10 : 8; 
         
-        const posRow = db.prepare(`SELECT max_favorable_price FROM positions WHERE id = ?`).get(pos.id) as any;
+        const posRow = db.prepare(`SELECT max_favorable_price, stop_loss FROM positions WHERE id = ?`).get(pos.id) as any;
         let maxFavorable = posRow?.max_favorable_price || pos.entryPrice;
+        let currentSl = posRow?.stop_loss || pos.stopLoss;
         
         let trailingStopHit = false;
 
@@ -564,9 +653,23 @@ export class TradingEngine {
             maxFavorable = currentPrice;
             db.prepare(`UPDATE positions SET max_favorable_price = ? WHERE id = ?`).run(maxFavorable, pos.id);
           }
-          // Only trail after 15 pips profit
-          if (maxFavorable - pos.entryPrice > 15 * pipSize) { 
-             if (currentPrice <= maxFavorable - (trailingPips * pipSize)) {
+
+          const profitPips = (currentPrice - pos.entryPrice) / pipSize;
+          
+          // Auto Break-Even Lock: If profit >= 12 pips and SL is still below Break-Even, move SL to Break-Even + 2 pips ($0.20)
+          const breakEvenSl = pos.entryPrice + (2 * pipSize);
+          if (config.ENABLE_BREAK_EVEN_AT_1R && !partialBooked && profitPips >= activationPips && (!currentSl || currentSl < breakEvenSl)) {
+            db.prepare(`UPDATE positions SET stop_loss = ? WHERE id = ?`).run(breakEvenSl, pos.id);
+            logger.info(`[BREAK-EVEN LOCKED] Moved SL to Break-Even (+2 pips) for ${pos.instrument} (${pos.id}) at ${breakEvenSl.toFixed(2)}.`);
+            if ((pos as any).brokerOrderId) {
+              MT5Client.modifyOrder((pos as any).brokerOrderId, breakEvenSl).catch(() => {});
+            }
+          }
+
+          // Dynamic Trailing Stop Activation
+          if (config.ENABLE_ATR_TRAILING_STOP && (maxFavorable - pos.entryPrice) >= activationPips * pipSize) { 
+             const trailSlLevel = maxFavorable - (trailingPips * pipSize);
+             if (currentPrice <= trailSlLevel) {
                trailingStopHit = true;
              }
           }
@@ -576,16 +679,31 @@ export class TradingEngine {
             maxFavorable = currentPrice;
             db.prepare(`UPDATE positions SET max_favorable_price = ? WHERE id = ?`).run(maxFavorable, pos.id);
           }
-          if (pos.entryPrice - maxFavorable > 15 * pipSize) {
-             if (currentPrice >= maxFavorable + (trailingPips * pipSize)) {
+
+          const profitPips = (pos.entryPrice - currentPrice) / pipSize;
+
+          // Auto Break-Even Lock for SELL: Move SL to Break-Even - 2 pips ($0.20)
+          const breakEvenSl = pos.entryPrice - (2 * pipSize);
+          if (config.ENABLE_BREAK_EVEN_AT_1R && !partialBooked && profitPips >= activationPips && (!currentSl || currentSl > breakEvenSl)) {
+            db.prepare(`UPDATE positions SET stop_loss = ? WHERE id = ?`).run(breakEvenSl, pos.id);
+            logger.info(`[BREAK-EVEN LOCKED] Moved SL to Break-Even (+2 pips) for ${pos.instrument} (${pos.id}) at ${breakEvenSl.toFixed(2)}.`);
+            if ((pos as any).brokerOrderId) {
+              MT5Client.modifyOrder((pos as any).brokerOrderId, breakEvenSl).catch(() => {});
+            }
+          }
+
+          // Dynamic Trailing Stop Activation
+          if (config.ENABLE_ATR_TRAILING_STOP && (pos.entryPrice - maxFavorable) >= activationPips * pipSize) { 
+             const trailSlLevel = maxFavorable + (trailingPips * pipSize);
+             if (currentPrice >= trailSlLevel) {
                trailingStopHit = true;
              }
           }
         }
 
         if (trailingStopHit) {
-          logger.info(`Trailing stop of ${trailingPips} pips hit for ${pos.id}. Closing...`);
-          await this.closePosition(pos.id, quote, 'Trailing Stop Triggered');
+          logger.info(`🎯 [PROFIT LOCKED] Trailing stop of ${trailingPips} pips hit for ${pos.instrument} (${pos.id}). Closing trade to lock gains...`);
+          await this.closePosition(pos.id, quote, 'Trailing Stop Profit Locked');
           continue;
         }
 
@@ -661,8 +779,8 @@ export class TradingEngine {
     `).get() as { peak: number | null };
 
     const dbPeak = row?.peak || 0;
-    const validDbPeak = dbPeak <= this.balance * 2.5 ? dbPeak : 0;
-    const peak = Math.max(validDbPeak, this.peakEquity, equity);
+    const validDbPeak = (dbPeak > 0 && dbPeak <= this.balance * 1.25) ? dbPeak : this.balance;
+    const peak = Math.max(validDbPeak, equity);
     this.peakEquity = peak;
     const drawdown = peak > 0 ? Math.max(0, ((peak - equity) / peak) * 100) : 0;
 
@@ -707,7 +825,7 @@ export class TradingEngine {
       const acc = await MT5Client.getAccountInfo();
       if (acc && acc.balance > 0) {
         this.balance = acc.balance;
-        if (this.peakEquity < acc.equity || this.peakEquity > acc.balance * 3) {
+        if (this.peakEquity < acc.equity || this.peakEquity > acc.balance * 1.25) {
           this.peakEquity = acc.equity;
         }
       }
@@ -721,12 +839,19 @@ export class TradingEngine {
         for (const dbPos of dbPositions) {
           if ((dbPos as any).brokerOrderId && !mt5OrderIds.has((dbPos as any).brokerOrderId)) {
             logger.info(`Position ${dbPos.id} (MT5 Order: ${(dbPos as any).brokerOrderId}) closed on MT5. Updating DB.`);
+            const isJpy = dbPos.instrument.includes('JPY');
+            const quote = PriceFeed.getLatestQuote(dbPos.instrument);
+            const exitPrice = quote ? (dbPos.action === 'BUY' ? quote.bid : quote.ask) : dbPos.entryPrice;
+            const actualPnl = dbPos.action === 'BUY' 
+              ? (exitPrice - dbPos.entryPrice) * dbPos.units 
+              : (dbPos.entryPrice - exitPrice) * dbPos.units;
+
             db.prepare(`
               INSERT INTO trades (id, instrument, action, entry_time, exit_time, entry_price, exit_price, units, pnl, strategy, status)
               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'CLOSED')
             `).run(
               dbPos.id, dbPos.instrument, dbPos.action, dbPos.entryTime, new Date().toISOString(),
-              dbPos.entryPrice, dbPos.entryPrice, dbPos.units, dbPos.unrealizedPnL, dbPos.strategy
+              dbPos.entryPrice, exitPrice, dbPos.units, actualPnl, dbPos.strategy
             );
             db.prepare(`DELETE FROM positions WHERE id = ?`).run(dbPos.id);
           }

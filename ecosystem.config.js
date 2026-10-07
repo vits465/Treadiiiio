@@ -23,6 +23,9 @@ module.exports = {
       watch: false,
       env: {
         PYTHONUNBUFFERED: "1",
+        MT5_ACCOUNT: process.env.MT5_ACCOUNT || "113769804",
+        MT5_PASSWORD: process.env.MT5_PASSWORD || "Gw-1UsFe",
+        MT5_SERVER: process.env.MT5_SERVER || "MetaQuotes-Demo",
       },
     },
     {
@@ -47,7 +50,7 @@ module.exports = {
     },
     {
       name: "auto-stop",
-      script: "./stop-at-12pm.js",
+      script: "./stop-at-6pm.js",
       cwd: __dirname,
       watch: false,
       autorestart: false,

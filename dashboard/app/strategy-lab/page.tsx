@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { getStrategies, setStrategyEnabled, StrategyToggle, connectLiveFeed } from '../../lib/api-client';
+import { getStrategies, setStrategyEnabled, StrategyToggle, connectLiveFeed, getQuarantine, reEnableStrategy } from '../../lib/api-client';
 import { 
   Play, 
   Square, 
@@ -9,18 +9,24 @@ import {
   TrendingUp, 
   TrendingDown, 
   Activity, 
-  AlertCircle
+  AlertCircle,
+  ShieldAlert
 } from 'lucide-react';
 
 export default function StrategyLabPage() {
   const [strategies, setStrategies] = useState<StrategyToggle[]>([]);
+  const [quarantined, setQuarantined] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
   const fetchStrategiesList = async () => {
     try {
-      const data = await getStrategies();
+      const [data, qData] = await Promise.all([
+        getStrategies(),
+        getQuarantine().catch(() => ({ quarantined: [] }))
+      ]);
       setStrategies(data);
+      if (qData?.quarantined) setQuarantined(qData.quarantined);
     } catch (e) {
       console.error("Failed to load strategies:", e);
     } finally {
@@ -59,6 +65,19 @@ export default function StrategyLabPage() {
     }
   };
 
+  const handleReEnable = async (name: string) => {
+    setActionLoading(name);
+    try {
+      await reEnableStrategy(name);
+      setQuarantined(prev => prev.filter(s => s !== name));
+      await fetchStrategiesList();
+    } catch (e) {
+      console.error("Failed to re-enable strategy:", e);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
   const getStrategyDescription = (name: string) => {
     switch (name) {
       case 'ma_crossover':
@@ -80,6 +99,34 @@ export default function StrategyLabPage() {
         <h2 className="text-2xl font-bold tracking-tight text-white">Strategy Control Lab</h2>
         <p className="text-slate-500 text-sm font-medium">Activate or deactivate specific rules-based strategies and compare their performance side-by-side.</p>
       </div>
+
+      {quarantined.length > 0 && (
+        <div className="bg-rose-950/30 border border-rose-500/40 rounded-xl p-5 shadow-lg">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div className="flex items-center space-x-3.5">
+              <ShieldAlert className="h-6 w-6 text-rose-400 shrink-0 animate-pulse" />
+              <div>
+                <h4 className="text-sm font-bold text-rose-300">Strategy Auto-Quarantine Active ({quarantined.length})</h4>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  The following strategies were auto-halted because rolling 30-trade PF dropped below 1.0: <span className="font-mono text-rose-300 font-bold">{quarantined.join(', ')}</span>
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {quarantined.map(strat => (
+                <button
+                  key={strat}
+                  onClick={() => handleReEnable(strat)}
+                  disabled={actionLoading !== null}
+                  className="text-xs font-bold px-3 py-1.5 rounded-lg bg-rose-500 hover:bg-rose-600 text-white transition shadow"
+                >
+                  {actionLoading === strat ? 'RESTORING...' : `RESTORE ${strat.toUpperCase()}`}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {loading ? (
         <div className="flex justify-center py-10">

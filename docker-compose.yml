@@ -1,0 +1,51 @@
+version: '3.8'
+
+services:
+  trading-engine:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: treadiiiio-trading-engine
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+    environment:
+      - PORT=4000
+      - NODE_ENV=production
+      - USE_SIMULATOR=true
+      - USE_REAL_PRICES=true
+      - ML_SERVICE_URL=http://ml-service:8000
+      - DB_PATH=./data/forex_bot.db
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    depends_on:
+      - ml-service
+
+  ml-service:
+    build:
+      context: ./ml-service
+      dockerfile: Dockerfile
+    container_name: treadiiiio-ml-service
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PORT=8000
+    volumes:
+      - ./ml-service/saved_models:/app/saved_models
+
+  dashboard:
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile
+    container_name: treadiiiio-dashboard
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_BOT_API_URL=http://trading-engine:4000
+      - NEXT_PUBLIC_BOT_WS_URL=ws://trading-engine:4000/ws
+    depends_on:
+      - trading-engine

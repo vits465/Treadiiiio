@@ -5,19 +5,25 @@ import { Candle, MarketContext } from '../src/strategy/strategy.interface';
 
 describe('StrategyAllocator & Overlay Strategies', () => {
 
-  it('should return default strategy budget allocations (40/30/20/10)', () => {
+  it('should return default strategy budget allocations for all registered strategies', () => {
     const allocations = StrategyAllocator.getStrategyAllocations(1000);
-    expect(allocations.length).toBe(4);
+    expect(allocations.length).toBe(12);
 
+    const scalp = allocations.find(a => a.name === 'scalping_1m');
+    const gold = allocations.find(a => a.name === 'gold_alpha');
     const ml = allocations.find(a => a.name === 'ml_signal');
     const rsi = allocations.find(a => a.name === 'rsi_reversion');
     const vol = allocations.find(a => a.name === 'volatility_arbitrage');
     const grid = allocations.find(a => a.name === 'grid_overlay');
+    const rec = allocations.find(a => a.name === 'loss_recovery');
 
-    expect(ml?.budgetPct).toBe(40);
-    expect(rsi?.budgetPct).toBe(30);
-    expect(vol?.budgetPct).toBe(20);
-    expect(grid?.budgetPct).toBe(10);
+    expect(scalp?.budgetPct).toBe(35);
+    expect(gold?.budgetPct).toBe(35);
+    expect(ml?.budgetPct).toBe(25);
+    expect(rsi?.budgetPct).toBe(15);
+    expect(vol?.budgetPct).toBe(25);
+    expect(grid?.budgetPct).toBe(5);
+    expect(rec?.budgetPct).toBe(15);
   });
 
   it('should allow trading when strategy monthly loss is within threshold', () => {
@@ -26,9 +32,9 @@ describe('StrategyAllocator & Overlay Strategies', () => {
   });
 
   it('should calculate relative strategy risk multipliers correctly', () => {
-    expect(StrategyAllocator.getStrategyRiskMultiplier('ml_signal')).toBe(1.0);
-    expect(StrategyAllocator.getStrategyRiskMultiplier('volatility_arbitrage')).toBe(0.5);
-    expect(StrategyAllocator.getStrategyRiskMultiplier('grid_overlay')).toBe(0.25);
+    expect(StrategyAllocator.getStrategyRiskMultiplier('ml_signal')).toBeCloseTo(0.625, 3);
+    expect(StrategyAllocator.getStrategyRiskMultiplier('volatility_arbitrage')).toBeCloseTo(0.625, 3);
+    expect(StrategyAllocator.getStrategyRiskMultiplier('grid_overlay')).toBeCloseTo(0.125, 3);
   });
 
   describe('VolatilityArbitrageStrategy', () => {

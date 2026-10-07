@@ -16,4 +16,4 @@ settings = Settings()
 if __name__ == "__main__":
     # Ensure correct DB path env var
     os.environ["DB_PATH"] = settings.db_path
-    uvicorn.run("api.main:app", host=settings.host, port=settings.port, reload=True)
+    uvicorn.run("api.main:app", host=settings.host, port=settings.port, reload=False)

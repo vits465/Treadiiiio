@@ -27,6 +27,7 @@ const envSchema = z.object({
   RISK_MAX_POSITION_SIZE_PCT: z.string().transform((val) => parseFloat(val)).default('2'),
   RISK_MAX_CONCURRENT_POSITIONS: z.string().transform((val) => parseInt(val, 10)).default('5'),
   RISK_DAILY_LOSS_LIMIT_PCT: z.string().transform((val) => parseFloat(val)).default('5'),
+  RISK_MAX_LEVERAGE: z.string().transform((val) => parseFloat(val)).default('20.0'),
   ML_MIN_CONFIDENCE: z.string().transform((val) => parseFloat(val)).default('0.62'),
   CORRELATION_GROUPS: z.string().transform((val) => val.split('|').map(g => g.trim())).default('USD:EUR/USD,GBP/USD,USD/JPY,AUD/USD,USD/CHF'),
   ML_SERVICE_URL: z.string().default('http://127.0.0.1:8000'),
@@ -35,6 +36,9 @@ const envSchema = z.object({
   TELEGRAM_BOT_TOKEN: z.string().optional(),
   TELEGRAM_CHAT_ID: z.string().optional(),
   GOLD_API_KEY: z.string().optional(),
+  ALPHA_VANTAGE_API_KEY: z.string().optional(),
+  FINNHUB_API_KEY: z.string().optional(),
+  USE_NEWS_SENTIMENT_GATE: z.string().transform((val) => val.toLowerCase() === 'true').default('true'),
   API_SECRET_KEY: z.string().min(16, 'API_SECRET_KEY must be at least 16 characters'),
   CORS_ALLOWED_ORIGIN: z.string().default('http://localhost:3000'),
   
@@ -48,6 +52,7 @@ const envSchema = z.object({
   RISK_DAILY_PROFIT_TARGET_USD: z.string().transform((val) => parseFloat(val)).default('50.0'),
   RISK_TRADE_TAKE_PROFIT_USD: z.string().transform((val) => parseFloat(val)).default('40.0'),
   TRADE_DIRECTION: z.enum(['BUY_ONLY', 'SELL_ONLY', 'BOTH']).default('BOTH'),
+  ENABLE_STRICT_MTF_GATE: z.string().transform((val) => val.toLowerCase() === 'true').default('false'),
   HOLIDAY_GUARD_ENABLED: z.string().transform((val) => val.toLowerCase() === 'true').default('true'),
 
   // Phase 3: Execution Quality
@@ -101,13 +106,24 @@ const envSchema = z.object({
 
   // Phase 2 Upgrade: Power Breakout & Scalper 1m Parameters
   POWER_DONCHIAN_PERIOD: z.string().transform((val) => parseInt(val, 10)).default('20'),
-  POWER_ADX_MIN: z.string().transform((val) => parseFloat(val)).default('25.0'),
-  POWER_ATR_EXPANSION_RATIO: z.string().transform((val) => parseFloat(val)).default('1.2'),
+  POWER_ADX_MIN: z.string().transform((val) => parseFloat(val)).default('20.0'),
+  POWER_ATR_EXPANSION_RATIO: z.string().transform((val) => parseFloat(val)).default('1.05'),
+  POWER_ONLY_NEAR_SESSION_OPENS: z.string().transform((val) => val.toLowerCase() === 'true').default('false'),
+  POWER_ATR_SL_MULT: z.string().transform((val) => parseFloat(val)).default('1.5'),
   SCALPER_TP_PIPS: z.string().transform((val) => parseFloat(val)).default('6.0'),
   SCALPER_SL_PIPS: z.string().transform((val) => parseFloat(val)).default('6.0'),
   SCALPER_MAX_SPREAD_RATIO: z.string().transform((val) => parseFloat(val)).default('0.25'),
   SCALPER_TIME_STOP_MINUTES: z.string().transform((val) => parseInt(val, 10)).default('15'),
   SCALPER_MAX_TRADES_PER_HOUR: z.string().transform((val) => parseInt(val, 10)).default('3'),
+  SCALPER_DAILY_LOSS_LIMIT_USD: z.string().transform((val) => parseFloat(val)).default('10.0'),
+
+  // Phase 2 Upgrade: Multi-Timeframe Confirmation & Engine Exit Upgrades
+  ENABLE_1H_MTF_CONFIRMATION: z.string().transform((val) => val.toLowerCase() === 'true').default('true'),
+  ENABLE_BREAK_EVEN_AT_1R: z.string().transform((val) => val.toLowerCase() === 'true').default('true'),
+  ENABLE_PARTIAL_PROFIT_AT_1R: z.string().transform((val) => val.toLowerCase() === 'true').default('true'),
+  ENABLE_ATR_TRAILING_STOP: z.string().transform((val) => val.toLowerCase() === 'true').default('true'),
+  TRAILING_STOP_ATR_MULTIPLIER: z.string().transform((val) => parseFloat(val)).default('1.5'),
+  MAX_HOLDING_TIME_MINUTES: z.string().transform((val) => parseInt(val, 10)).default('1440'),
 });
 
 const parsed = envSchema.safeParse(process.env);

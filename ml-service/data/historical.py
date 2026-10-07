@@ -27,29 +27,50 @@ def fetch_historical_candles(
     
     candles = []
     
-    if os.path.exists(json_path):
+    # 1. Primary: Query real SQLite database (forex_bot.db)
+    try:
+        from database import get_db_connection
+        norm_inst = instrument.replace('_', '/')
+        alt_inst = instrument.replace('/', '_')
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT time, instrument, granularity, open, high, low, close, volume
+                FROM candles
+                WHERE (instrument = ? OR instrument = ? OR instrument = ?)
+                ORDER BY time ASC
+            """, (instrument, norm_inst, alt_inst))
+            rows = cursor.fetchall()
+            if rows:
+                gran_rows = [r for r in rows if r["granularity"] == granularity]
+                if len(gran_rows) >= 100:
+                    candles = [dict(r) for r in gran_rows]
+                elif len(rows) >= 100:
+                    candles = [dict(r) for r in rows]
+    except Exception as e:
+        logger.error(f"Error reading SQLite database in python historical fetch: {e}")
+            
+    # 2. Secondary fallback: check legacy JSON DB file if SQLite had no candles
+    if len(candles) < 100 and os.path.exists(json_path):
         try:
             with open(json_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
                 all_candles = data.get("candles", [])
-                
-                # Filter by instrument and granularity
                 candles = [
                     c for c in all_candles 
-                    if c.get("instrument") == instrument and c.get("granularity") == granularity
+                    if (c.get("instrument") == instrument or c.get("instrument") == instrument.replace('_', '/'))
+                    and c.get("granularity") == granularity
                 ]
-                
-                # Sort chronologically (oldest first)
                 candles.sort(key=lambda x: x.get("time"))
         except Exception as e:
             logger.error(f"Error reading JSON database in python historical fetch: {e}")
             
-    # If we don't have enough candles (need at least 200)
-    if len(candles) < 200:
+    # If we don't have enough candles (need at least 100)
+    if len(candles) < 100:
         if not allow_synthetic:
             raise ValueError(
                 f"Insufficient real market data for {instrument} ({len(candles)} candles found, "
-                f"need at least 200). Set allow_synthetic=true to train on synthetic data, "
+                f"need at least 100). Set allow_synthetic=true to train on synthetic data, "
                 f"but be aware the model will NOT reflect real market dynamics."
             )
         
@@ -69,10 +90,17 @@ def generate_synthetic_candles(instrument: str, granularity: str, count: int) ->
     """
     base_prices = {
         "EUR_USD": 1.0850,
+        "EUR/USD": 1.0850,
         "GBP_USD": 1.2700,
+        "GBP/USD": 1.2700,
         "USD_JPY": 155.50,
+        "USD/JPY": 155.50,
         "AUD_USD": 0.6650,
+        "AUD/USD": 0.6650,
         "USD_CHF": 0.9050,
+        "USD/CHF": 0.9050,
+        "XAU_USD": 4120.0,
+        "XAU/USD": 4120.0,
     }
     
     price = base_prices.get(instrument, 1.0000)

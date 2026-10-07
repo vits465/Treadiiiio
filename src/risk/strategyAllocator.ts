@@ -16,10 +16,18 @@ export interface StrategyBudget {
 export class StrategyAllocator {
   // Default strategy risk budgets (% of portfolio risk)
   private static readonly DEFAULT_BUDGETS: Record<string, number> = {
-    'ml_signal': 0.40,           // 40% Trend / ML
-    'rsi_reversion': 0.30,       // 30% Scalp / Mean Reversion
-    'volatility_arbitrage': 0.20, // 20% Volatility Arbitrage
-    'grid_overlay': 0.10         // 10% Grid Overlay
+    'scalping_1m': 0.35,          // 35% High-Frequency Scalping
+    'gold_alpha': 0.35,           // 35% Institutional Gold Alpha Scalping
+    'volatility_arbitrage': 0.25, // 25% Volatility Scalping
+    'power_breakout': 0.20,       // 20% Momentum Breakout
+    'smc_liquidity': 0.20,        // 20% Smart Money Retest Scalping
+    'ml_signal': 0.25,            // 25% Machine Learning Filter
+    'rsi_reversion': 0.15,        // 15% Pullback Mean Reversion
+    'bollinger_bands': 0.15,      // 15% Band Squeeze Scalping
+    'asian_killzone': 0.15,       // 15% Session Sweep Scalping
+    'ma_crossover': 0.10,         // 10% Triple EMA Cross
+    'grid_overlay': 0.05,         // 5% Low-volatility Grid
+    'loss_recovery': 0.15,        // 15% Bounded Loss Recovery
   };
 
   private static readonly MONTHLY_LOSS_AUTO_PAUSE_PCT = -8.0; // -8% loss limit per strategy per month

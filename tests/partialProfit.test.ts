@@ -25,21 +25,21 @@ describe('Partial Profit & 1:2 / 1:3 RRR System', () => {
       time: new Date().toISOString(),
     };
 
-    // Execute order with 200 pips SL ($2.00), 400 pips TP1 ($4.00, 1:2), 600 pips TP2 ($6.00, 1:3)
+    // Execute order with 20 pips SL ($2.00), 40 pips TP1 ($4.00, 1:2), 60 pips TP2 ($6.00, 1:3)
     const posId = await TradingEngine.executeOrder(
       'XAU/USD',
       'BUY',
       'asian_killzone',
       quote,
-      200,
-      600,
+      20,
+      60,
       undefined,
       undefined,
       undefined,
       undefined,
       0.02,
-      400,
-      600
+      40,
+      60
     );
 
     expect(posId).not.toBeNull();

@@ -13,3 +13,6 @@ pandas-ta-classic
 shap
 torch>=2.0.0
 transformers>=4.30.0
+onnx>=1.16.0
+onnxmltools>=1.16.0
+skl2onnx>=1.20.0

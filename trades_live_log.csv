@@ -1,0 +1,3 @@
+id,instrument,action,entry_time,exit_time,entry_price,exit_price,units,pnl_usd,strategy,status,broker_order_id,risk_pct,slippage_pips,latency_ms,exit_reason
+"09a48584-4ad1-458e-94a8-f74d9bf7f309","XAU/USD","BUY","2026-10-07T18:27:03.583Z","2026-10-07T18:27:51.624Z","4112.1","4110.55","3.75","-5.812500000000682","volatility_arbitrage","CLOSED","10860247552","1.5","0","0",""
+"6b43f069-a1eb-4ee4-a584-81e25c6aba47","XAU/USD","BUY","2026-10-07T18:24:02.877Z","2026-10-07T18:27:03.164Z","4111.11","4111.86","3.75","2.8125","volatility_arbitrage","CLOSED","10860203712","1.5","0","0",""

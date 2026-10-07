@@ -117,6 +117,71 @@ export class CorrelationManager {
     };
   }
 
+  public static readonly CORRELATION_GROUPS: Record<string, Record<string, 'LONG' | 'SHORT'>> = {
+    USD_EXPOSURE: {
+      'EUR/USD': 'SHORT',
+      'GBP/USD': 'SHORT',
+      'AUD/USD': 'SHORT',
+      'USD/JPY': 'LONG',
+      'USD/CHF': 'LONG',
+      'XAU/USD': 'SHORT',
+    },
+    EUROPEAN: {
+      'EUR/USD': 'LONG',
+      'GBP/USD': 'LONG',
+    },
+    COMMODITY: {
+      'AUD/USD': 'LONG',
+      'XAU/USD': 'LONG',
+    }
+  };
+
+  /**
+   * Checks net same-direction exposure per correlation group.
+   * Caps net correlated direction (e.g., max 2 net Long USD positions).
+   */
+  public static checkGroupNetExposure(
+    openPositions: ActivePosition[],
+    candidateInstrument: string,
+    candidateSide: 'LONG' | 'SHORT' | 'BUY' | 'SELL',
+    maxNetPerGroup: number = 2
+  ): { allowed: boolean; group?: string; netExposure?: number; reason?: string } {
+    const candidateNorm = this.normalizeInstrument(candidateInstrument);
+    const candSide = this.normalizeSide(candidateSide);
+
+    for (const [groupName, members] of Object.entries(this.CORRELATION_GROUPS)) {
+      if (!members[candidateNorm]) continue;
+
+      let netDirectionScore = 0;
+
+      // Evaluate open positions in this group
+      for (const pos of openPositions) {
+        const posNorm = this.normalizeInstrument(pos.instrument);
+        const groupSide = members[posNorm];
+        if (groupSide) {
+          const actualSide = this.normalizeSide(pos.side);
+          // +1 if trade matches group reference direction, -1 if opposed
+          netDirectionScore += actualSide === groupSide ? 1 : -1;
+        }
+      }
+
+      // Add candidate trade
+      const candGroupSide = members[candidateNorm];
+      netDirectionScore += candSide === candGroupSide ? 1 : -1;
+
+      if (Math.abs(netDirectionScore) > maxNetPerGroup) {
+        return {
+          allowed: false,
+          group: groupName,
+          netExposure: netDirectionScore,
+          reason: `Net exposure in correlation group ${groupName} would reach ${netDirectionScore} (exceeds cap of ${maxNetPerGroup}).`
+        };
+      }
+    }
+
+    return { allowed: true };
+  }
+
   /**
    * Returns the entire static correlation matrix for API / Dashboard visibility.
    */

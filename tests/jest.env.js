@@ -53,6 +53,7 @@ process.env.RISK_CONSECUTIVE_LOSS_COOLDOWN_HOURS = '4';
 process.env.TRADING_SESSIONS = 'LONDON,NY,TOKYO,SYDNEY';
 process.env.TRADING_DAYS = '0,1,2,3,4,5,6';  // all days including Sat/Sun
 process.env.TRADE_DIRECTION = 'BOTH';
+process.env.ENABLE_STRICT_MTF_GATE = 'false';
 process.env.HOLIDAY_GUARD_ENABLED = 'false';
 process.env.NEWS_BLACKOUT_MINUTES_BEFORE = '0';
 process.env.NEWS_BLACKOUT_MINUTES_AFTER = '0';
@@ -65,6 +66,7 @@ process.env.ATR_TP_MULTIPLIER = '3.0';
 
 // Correlation
 process.env.CORRELATION_GROUPS = 'USD:EUR/USD,GBP/USD,USD/JPY,AUD/USD,USD/CHF';
+process.env.MAX_PORTFOLIO_CORRELATION_SUM = '1.5';
 
 // Misc
 process.env.CORS_ALLOWED_ORIGIN = 'http://localhost:3000';

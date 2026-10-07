@@ -1,13 +1,20 @@
 import os
+from dotenv import load_dotenv
 import MetaTrader5 as mt5
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from typing import Literal, Optional
 
+# Load environment variables
+root_env_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".env"))
+if os.path.exists(root_env_path):
+    load_dotenv(root_env_path, override=False)
+local_env_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".env"))
+if os.path.exists(local_env_path):
+    load_dotenv(local_env_path, override=False)
+
 router = APIRouter(prefix="/mt5", tags=["MT5 Broker Bridge"])
 
-# Note: In a production environment, MT5 connection should be managed as a lifespan event
-# For simplicity, we initialize on demand or check connection state.
 def ensure_mt5_connection():
     if not mt5.initialize():
         raise HTTPException(status_code=500, detail=f"MT5 initialize failed, error code: {mt5.last_error()}")
@@ -17,12 +24,27 @@ def ensure_mt5_connection():
     server = os.environ.get("MT5_SERVER")
 
     if account and password and server:
-        # Check if we are already logged in to the correct account
         acc_info = mt5.account_info()
-        if acc_info is None or str(acc_info.login) != account:
+        # Verify account and ensure trading rights are active (not investor/read-only mode)
+        if acc_info is None or str(acc_info.login) != str(account) or not getattr(acc_info, "trade_allowed", False):
             authorized = mt5.login(int(account), password=password, server=server)
             if not authorized:
                 raise HTTPException(status_code=401, detail=f"MT5 login failed, error code: {mt5.last_error()}")
+
+def get_supported_filling_modes(symbol_info):
+    """Determine allowed filling mode dynamically from broker symbol capabilities."""
+    fillings = []
+    mode = getattr(symbol_info, "filling_mode", 0)
+    # SYMBOL_FILLING_FOK = 1, SYMBOL_FILLING_IOC = 2
+    if mode & 1:
+        fillings.append(mt5.ORDER_FILLING_FOK)
+    if mode & 2:
+        fillings.append(mt5.ORDER_FILLING_IOC)
+        
+    if not fillings:
+        fillings = [mt5.ORDER_FILLING_IOC, mt5.ORDER_FILLING_FOK]
+        
+    return fillings
 
 class OrderRequest(BaseModel):
     instrument: str
@@ -72,15 +94,7 @@ def place_order(req: OrderRequest):
         tp_points = req.tp_pips * (100 if "JPY" in symbol else 10) * point
         tp = price + tp_points if req.action == "BUY" else price - tp_points
         
-    # Determine allowed filling mode dynamically
-    possible_fillings = [mt5.ORDER_FILLING_FOK, mt5.ORDER_FILLING_IOC, mt5.ORDER_FILLING_RETURN]
-    if hasattr(symbol_info, "filling_mode"):
-        possible_fillings = []
-        if symbol_info.filling_mode & 1:
-            possible_fillings.append(mt5.ORDER_FILLING_FOK)
-        if symbol_info.filling_mode & 2:
-            possible_fillings.append(mt5.ORDER_FILLING_IOC)
-        possible_fillings.append(mt5.ORDER_FILLING_RETURN)
+    possible_fillings = get_supported_filling_modes(symbol_info)
 
     last_result = None
     for filling_mode in possible_fillings:
@@ -115,6 +129,10 @@ def place_order(req: OrderRequest):
     
     if retcode == 10027:
         detail_msg = "AutoTrading is DISABLED in MetaTrader 5. Please click the 'Algo Trading' button (Ctrl+E) in MT5 top toolbar to turn it GREEN."
+    elif retcode == 10017:
+        detail_msg = "Trade is disabled in MT5 (check master password permissions)."
+    elif retcode == 10019:
+        detail_msg = "Not enough margin/money to open order."
     else:
         detail_msg = f"Order failed, retcode={retcode} comment={comment}"
         
@@ -147,14 +165,7 @@ def close_order(req: CloseOrderRequest):
     
     close_volume = req.volume if req.volume is not None and req.volume > 0 else position.volume
 
-    possible_fillings = [mt5.ORDER_FILLING_FOK, mt5.ORDER_FILLING_IOC, mt5.ORDER_FILLING_RETURN]
-    if hasattr(symbol_info, "filling_mode"):
-        possible_fillings = []
-        if symbol_info.filling_mode & 1:
-            possible_fillings.append(mt5.ORDER_FILLING_FOK)
-        if symbol_info.filling_mode & 2:
-            possible_fillings.append(mt5.ORDER_FILLING_IOC)
-        possible_fillings.append(mt5.ORDER_FILLING_RETURN)
+    possible_fillings = get_supported_filling_modes(symbol_info)
 
     last_result = None
     for filling_mode in possible_fillings:
@@ -178,7 +189,37 @@ def close_order(req: CloseOrderRequest):
             return {"status": "closed", "order_id": req.order_id, "price": result.price}
         
     retcode = last_result.retcode if last_result else "UNKNOWN"
-    raise HTTPException(status_code=400, detail=f"Close order failed, retcode={retcode}")
+    comment = last_result.comment if last_result else "No result"
+    raise HTTPException(status_code=400, detail=f"Close order failed, retcode={retcode} comment={comment}")
+
+class ModifyOrderRequest(BaseModel):
+    order_id: str
+    sl: Optional[float] = None
+    tp: Optional[float] = None
+
+@router.post("/modify")
+def modify_order(req: ModifyOrderRequest):
+    ensure_mt5_connection()
+    ticket = int(req.order_id)
+    positions = mt5.positions_get(ticket=ticket)
+    if not positions or len(positions) == 0:
+        raise HTTPException(status_code=404, detail="Position not found")
+        
+    pos = positions[0]
+    request = {
+        "action": mt5.TRADE_ACTION_SLTP,
+        "position": ticket,
+        "symbol": pos.symbol,
+        "sl": req.sl if req.sl is not None else pos.sl,
+        "tp": req.tp if req.tp is not None else pos.tp,
+    }
+    result = mt5.order_send(request)
+    if result and result.retcode == mt5.TRADE_RETCODE_DONE:
+        return {"status": "modified", "order_id": req.order_id, "sl": req.sl, "tp": req.tp}
+        
+    retcode = result.retcode if result else "UNKNOWN"
+    comment = result.comment if result else "No result"
+    raise HTTPException(status_code=400, detail=f"Modify failed, retcode={retcode} comment={comment}")
 
 @router.get("/positions")
 def get_positions():

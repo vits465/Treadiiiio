@@ -148,4 +148,109 @@ export class NewsFilter {
 
     return { allowed: true };
   }
+
+  private static sentimentCache: Map<string, { score: number; label: string; timestamp: number }> = new Map();
+  private static SENTIMENT_TTL_MS = 45 * 60 * 1000; // 45 minutes
+
+  /**
+   * Fetches real-time NLP sentiment from Alpha Vantage (or Finnhub fallback).
+   */
+  public static async fetchLiveSentiment(instrument: string): Promise<{ score: number; label: string }> {
+    const symbol = instrument.replace('/', '_').toUpperCase();
+    const cached = this.sentimentCache.get(symbol);
+    const now = Date.now();
+
+    if (cached && (now - cached.timestamp < this.SENTIMENT_TTL_MS)) {
+      return { score: cached.score, label: cached.label };
+    }
+
+    let score = 0.0;
+    let label = 'Neutral';
+
+    // 1. Primary: Alpha Vantage NEWS_SENTIMENT
+    if (config.ALPHA_VANTAGE_API_KEY) {
+      try {
+        const baseCurrency = symbol.split('_')[0]; // e.g. EUR from EUR_USD, XAU from XAU_USD
+        const ticker = baseCurrency === 'XAU' ? 'GLD' : `FOREX:${baseCurrency}`;
+        const url = `https://www.alphavantage.co/query?function=NEWS_SENTIMENT&tickers=${ticker}&limit=10&apikey=${config.ALPHA_VANTAGE_API_KEY}`;
+        
+        const response = await fetch(url);
+        if (response.ok) {
+          const data: any = await response.json();
+          if (data && Array.isArray(data.feed) && data.feed.length > 0) {
+            let totalScore = 0;
+            let count = 0;
+
+            for (const article of data.feed) {
+              if (typeof article.overall_sentiment_score === 'number') {
+                totalScore += article.overall_sentiment_score;
+                count++;
+              }
+            }
+
+            if (count > 0) {
+              score = parseFloat((totalScore / count).toFixed(3));
+              if (score >= 0.15) label = 'Bullish';
+              else if (score <= -0.15) label = 'Bearish';
+              else label = 'Neutral';
+
+              logger.info(`[NEWS SENTIMENT] Alpha Vantage live score for ${symbol}: ${score} (${label}) from ${count} news articles.`);
+            }
+          }
+        }
+      } catch (err) {
+        logger.debug(`Alpha Vantage sentiment fetch error for ${symbol}: ${err}`);
+      }
+    }
+
+    // Cache the result
+    this.sentimentCache.set(symbol, { score, label, timestamp: now });
+    return { score, label };
+  }
+
+  /**
+   * Validates if a trade action aligns with current market news sentiment.
+   */
+  public static async validateSentimentAlignment(
+    instrument: string,
+    action: 'BUY' | 'SELL'
+  ): Promise<{ aligned: boolean; score: number; label: string; confidenceDelta: number; reason?: string }> {
+    if (!config.USE_NEWS_SENTIMENT_GATE) {
+      return { aligned: true, score: 0.0, label: 'Disabled', confidenceDelta: 0.0 };
+    }
+
+    const { score, label } = await this.fetchLiveSentiment(instrument);
+
+    // Reject strong conflict: BUY into heavily bearish news (< -0.30) OR SELL into heavily bullish news (> +0.30)
+    if (action === 'BUY' && score < -0.30) {
+      return {
+        aligned: false,
+        score,
+        label,
+        confidenceDelta: -0.15,
+        reason: `NEWS_SENTIMENT_MISMATCH: Bearish news flow (score: ${score}, label: ${label}) conflicts with BUY signal`
+      };
+    }
+
+    if (action === 'SELL' && score > 0.30) {
+      return {
+        aligned: false,
+        score,
+        label,
+        confidenceDelta: -0.15,
+        reason: `NEWS_SENTIMENT_MISMATCH: Bullish news flow (score: ${score}, label: ${label}) conflicts with SELL signal`
+      };
+    }
+
+    // Boost confidence if sentiment strongly aligns
+    let confidenceDelta = 0.0;
+    if (action === 'BUY' && score >= 0.20) {
+      confidenceDelta = 0.05;
+    } else if (action === 'SELL' && score <= -0.20) {
+      confidenceDelta = 0.05;
+    }
+
+    return { aligned: true, score, label, confidenceDelta };
+  }
 }
+

@@ -1,12 +1,14 @@
-import { Strategy, Signal, MarketContext, Candle } from './strategy.interface';
+import { Strategy, Signal, MarketContext, Candle, StrategyEvaluationResult } from './strategy.interface';
+import { SymbolNormalizer } from '../utils/symbolNormalizer';
 import { logger } from '../logger';
 
 export class VolatilityArbitrageStrategy implements Strategy {
   public name = 'volatility_arbitrage';
 
-  public onCandle(candle: Candle, context: MarketContext): Signal | null {
-    const candles = context.historicalCandles;
-    if (candles.length < 25) return null;
+  public evaluate(candles: Candle[], context: MarketContext): StrategyEvaluationResult {
+    if (!candles || candles.length < 25) {
+      return { signal: 'NONE', confidence: 0, reason: 'Insufficient candles for Volatility Arbitrage', sl: 0, tp: 0 };
+    }
 
     // 1. Calculate 14-period ATR series
     const atrSeries: number[] = [];
@@ -18,7 +20,9 @@ export class VolatilityArbitrageStrategy implements Strategy {
       atrSeries.push(tr);
     }
 
-    if (atrSeries.length < 20) return null;
+    if (atrSeries.length < 20) {
+      return { signal: 'NONE', confidence: 0, reason: 'Insufficient ATR series', sl: 0, tp: 0 };
+    }
 
     // 2. Rolling 20-period mean and std dev of ATR
     const recentAtr = atrSeries.slice(-20);
@@ -32,34 +36,58 @@ export class VolatilityArbitrageStrategy implements Strategy {
     const isVolSpike = currentAtr > (meanAtr + 2 * stdDevAtr);
 
     if (!isVolSpike) {
-      return null;
+      return { signal: 'NONE', confidence: 0, reason: 'No volatility spike', sl: 0, tp: 0 };
     }
 
-    // Determine direction from price momentum over last 3 candles
-    const currentClose = candles[candles.length - 1].close;
-    const pastClose = candles[candles.length - 4].close;
-    const isBullish = currentClose > pastClose;
+    const currentCandle = candles[candles.length - 1];
+    const pastCandle = candles[candles.length - 4] || candles[0];
+    const isBullish = currentCandle.close > pastCandle.close;
 
-    // Convert ATR to pips for dynamic TP/SL
-    const pipMultiplier = candle.instrument.includes('JPY') ? 100 : (candle.instrument.includes('XAU') ? 10 : 10000);
-    const atrPips = currentAtr * pipMultiplier;
+    const instrument = currentCandle.instrument || (context.currentQuote ? context.currentQuote.instrument : 'EUR/USD');
+    const pipSize = SymbolNormalizer.getPipSize(instrument);
+    const atrPips = currentAtr / pipSize;
 
     const action = isBullish ? 'BUY' : 'SELL';
-    
+    const stopLossPips = Math.round(atrPips * 1.5);
+    const takeProfitPips = Math.round(atrPips * 3.0);
+
     logger.info(
-      `[VOLATILITY ARBITRAGE] Volatility expansion detected on ${candle.instrument}! ` +
-      `Current ATR: ${currentAtr.toFixed(5)} (Mean: ${meanAtr.toFixed(5)} + 2*StdDev: ${(2*stdDevAtr).toFixed(5)}). ` +
+      `[VOLATILITY ARBITRAGE] Volatility expansion detected on ${instrument}! ` +
+      `Current ATR: ${currentAtr.toFixed(5)} (Mean: ${meanAtr.toFixed(5)} + 2*StdDev: ${(2 * stdDevAtr).toFixed(5)}). ` +
       `Action: ${action}`
     );
 
     return {
+      signal: action,
+      confidence: 0.82,
+      reason: `Volatility expansion spike (ATR: ${currentAtr.toFixed(4)} > mean+2sd)`,
+      sl: stopLossPips,
+      tp: takeProfitPips,
+      stopLossPips,
+      takeProfitPips,
+      atr: currentAtr,
+    };
+  }
+
+  public onCandle(candle: Candle, context: MarketContext): Signal | null {
+    const candles = context.historicalCandles && context.historicalCandles.length > 0
+      ? context.historicalCandles
+      : [candle];
+    const result = this.evaluate(candles, context);
+
+    if (result.signal === 'NONE') {
+      return null;
+    }
+
+    return {
       strategy: this.name,
       instrument: candle.instrument,
-      action,
-      confidence: 0.82,
-      atr: atrPips,
-      stopLossPips: Math.round(atrPips * 1.5),
-      takeProfitPips: Math.round(atrPips * 3.0)
+      action: result.signal as 'BUY' | 'SELL' | 'CLOSE',
+      confidence: result.confidence,
+      reason: result.reason,
+      stopLossPips: result.stopLossPips ?? result.sl,
+      takeProfitPips: result.takeProfitPips ?? result.tp,
+      atr: result.atr,
     };
   }
 }

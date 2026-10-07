@@ -2,10 +2,19 @@ import os
 import joblib
 import pandas as pd
 import numpy as np
-import torch
-import torch.nn as nn
-import torch.optim as optim
-from torch.utils.data import DataLoader, TensorDataset
+try:
+    import torch
+    import torch.nn as nn
+    import torch.optim as optim
+    from torch.utils.data import DataLoader, TensorDataset
+    HAS_TORCH = True
+except ImportError:
+    HAS_TORCH = False
+    torch = None
+    nn = object
+    optim = None
+    DataLoader = None
+    TensorDataset = None
 from sklearn.metrics import accuracy_score, precision_recall_fscore_support
 from sklearn.preprocessing import StandardScaler
 from features.engineering import compute_features
@@ -20,21 +29,25 @@ FEATURES = [
     'rsi_14', 'bb_width', 'atr_14', 'roc_10'
 ]
 
-class LSTMNetwork(nn.Module):
-    def __init__(self, input_size, hidden_size=64, num_layers=2, num_classes=3):
-        super(LSTMNetwork, self).__init__()
-        self.hidden_size = hidden_size
-        self.num_layers = num_layers
-        self.lstm = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True, dropout=0.2)
-        self.fc = nn.Linear(hidden_size, num_classes)
-        self.softmax = nn.Softmax(dim=1)
+if HAS_TORCH:
+    class LSTMNetwork(nn.Module):
+        def __init__(self, input_size, hidden_size=64, num_layers=2, num_classes=3):
+            super(LSTMNetwork, self).__init__()
+            self.hidden_size = hidden_size
+            self.num_layers = num_layers
+            self.lstm = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True, dropout=0.2)
+            self.fc = nn.Linear(hidden_size, num_classes)
+            self.softmax = nn.Softmax(dim=1)
 
-    def forward(self, x):
-        h0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to(x.device)
-        c0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to(x.device)
-        out, _ = self.lstm(x, (h0, c0))
-        out = self.fc(out[:, -1, :])
-        return self.softmax(out)
+        def forward(self, x):
+            h0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to(x.device)
+            c0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to(x.device)
+            out, _ = self.lstm(x, (h0, c0))
+            out = self.fc(out[:, -1, :])
+            return self.softmax(out)
+else:
+    class LSTMNetwork:
+        pass
 
 class LSTMModelManager:
     def __init__(self, instrument: str, model_id: str = None):

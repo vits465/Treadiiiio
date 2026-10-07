@@ -1,10 +1,11 @@
-import { Strategy, Signal, MarketContext } from './strategy.interface';
+import { Strategy, Signal, MarketContext, Candle, StrategyEvaluationResult } from './strategy.interface';
 import { db } from '../db';
 import { logger } from '../logger';
 import { config } from '../config';
 import { RiskManager } from '../risk/riskManager';
 import { RejectionLogger } from '../risk/rejectionLogger';
 import { computeAtr } from '../risk/volatility';
+import { SymbolNormalizer } from '../utils/symbolNormalizer';
 
 /**
  * LossRecoveryStrategy — Realistic Edge Edition
@@ -24,19 +25,26 @@ import { computeAtr } from '../risk/volatility';
 export class LossRecoveryStrategy implements Strategy {
   name = 'loss_recovery';
 
-  onCandle(candle: any, context: MarketContext): Signal | null {
-    const instrument = context.currentQuote.instrument;
+  evaluate(candles: Candle[], context: MarketContext): StrategyEvaluationResult {
+    const quote = context.currentQuote;
+    const instrument = quote ? quote.instrument : 'EUR/USD';
 
     // Do nothing if we already have an active position for this strategy
-    if (context.activePosition) return null;
+    if (context.activePosition) {
+      return { signal: 'NONE', confidence: 0, reason: 'Active position already open', sl: 0, tp: 0 };
+    }
 
-    if (context.historicalCandles.length < 14) return null;
+    if (!candles || candles.length < 14) {
+      return { signal: 'NONE', confidence: 0, reason: 'Insufficient candle history', sl: 0, tp: 0 };
+    }
 
     // ------------------------------------------------------------------
     // Bound 3: Auto-disable check — query DB for consecutive losing
     // recovery trades and respect the cooldown period.
     // ------------------------------------------------------------------
-    if (this.isAutoDisabled(instrument)) return null;
+    if (this.isAutoDisabled(instrument)) {
+      return { signal: 'NONE', confidence: 0, reason: 'Recovery auto-disabled on cooldown', sl: 0, tp: 0 };
+    }
 
     // ------------------------------------------------------------------
     // Bound 4: Global cap of 3 concurrent recovery-sourced trades
@@ -46,14 +54,18 @@ export class LossRecoveryStrategy implements Strategy {
       FROM positions
       WHERE strategy = 'loss_recovery'
     `).get() as { count: number };
-    if (openRecoveryTrades.count >= 3) return null;
+    if (openRecoveryTrades.count >= 3) {
+      return { signal: 'NONE', confidence: 0, reason: 'Global concurrent recovery cap (3) reached', sl: 0, tp: 0 };
+    }
 
     // ------------------------------------------------------------------
     // Bound 1: Cumulative 24h risk check — use actual risk_pct from DB
     // (falls back to configured risk for rows that predate the column).
     // ------------------------------------------------------------------
     const prospectiveRisk = RiskManager.getEffectiveRiskPct(context.accountEquity, config.RISK_MODE);
-    if (!this.hasCumulativeBudget(prospectiveRisk, instrument)) return null;
+    if (!this.hasCumulativeBudget(prospectiveRisk, instrument)) {
+      return { signal: 'NONE', confidence: 0, reason: '24h recovery risk budget exhausted', sl: 0, tp: 0 };
+    }
 
     // ------------------------------------------------------------------
     // 1. Check the last closed trade for this instrument
@@ -67,7 +79,9 @@ export class LossRecoveryStrategy implements Strategy {
     `).get(instrument) as { id: string; pnl: number; strategy: string } | undefined;
 
     // If there is no previous trade, or the last trade was a WIN, do nothing.
-    if (!lastTradeRow || lastTradeRow.pnl >= 0) return null;
+    if (!lastTradeRow || lastTradeRow.pnl >= 0) {
+      return { signal: 'NONE', confidence: 0, reason: 'Last trade was profitable or no prior trade', sl: 0, tp: 0 };
+    }
 
     const lossAmount = Math.abs(lastTradeRow.pnl);
 
@@ -77,32 +91,32 @@ export class LossRecoveryStrategy implements Strategy {
     // non-negative exit (i.e. win or break-even).
     // ------------------------------------------------------------------
     const attempts = this.countRecoveryAttemptsSinceLastWin(instrument);
-    if (attempts >= 2) return null;
+    if (attempts >= 2) {
+      return { signal: 'NONE', confidence: 0, reason: 'Max recovery attempts (2) reached', sl: 0, tp: 0 };
+    }
 
     // ------------------------------------------------------------------
     // 3. Entry signal — short-term RSI(7) for high-probability mean reversion
     // ------------------------------------------------------------------
-    const candles = context.historicalCandles;
     const closes = candles.map((c) => c.close);
     const rsi = this.calculateRSI(closes, 7);
     const currentRsi = rsi[rsi.length - 1];
 
-    const isXau = instrument.includes('XAU');
-    const isJpy = instrument.includes('JPY');
-    const pipSize = (isXau || isJpy) ? 0.01 : 0.0001;
+    const pipSize = SymbolNormalizer.getPipSize(instrument);
+    const isGold = SymbolNormalizer.isGold(instrument);
 
     // Dynamic ATR TP & SL (2.0x ATR TP, 1.2x ATR SL -> 1.67:1 RRR)
     const atrs = computeAtr(candles, 14);
     const currentAtr = atrs[atrs.length - 1];
-    const defaultAtr = isXau ? 8.0 : isJpy ? 0.35 : 0.0020;
+    const defaultAtr = isGold ? 2.5 : 0.0020;
     const effectiveAtr = currentAtr && currentAtr > 0 ? currentAtr : defaultAtr;
 
     const stopLossPips = Math.max(12, Math.round((effectiveAtr * 1.2) / pipSize));
     const takeProfitPips = Math.max(20, Math.round((effectiveAtr * 2.0) / pipSize));
 
     let action: 'BUY' | 'SELL' | null = null;
-    if (currentRsi < 32) action = 'BUY';   // High-probability oversold bounce to recover loss
-    else if (currentRsi > 68) action = 'SELL'; // High-probability overbought rejection to recover loss
+    if (currentRsi < 32) action = 'BUY';
+    else if (currentRsi > 68) action = 'SELL';
 
     if (action) {
       logger.info(
@@ -111,17 +125,42 @@ export class LossRecoveryStrategy implements Strategy {
       );
 
       return {
-        action,
-        instrument,
-        strategy: this.name,
+        signal: action,
         confidence: 0.85,
+        reason: `Loss recovery attempt ${attempts + 1}/2 for $${lossAmount.toFixed(2)} loss (RSI: ${currentRsi.toFixed(1)})`,
+        sl: stopLossPips,
+        tp: takeProfitPips,
         stopLossPips,
         takeProfitPips,
         amountToRecover: lossAmount,
+        atr: effectiveAtr,
       };
     }
 
-    return null;
+    return { signal: 'NONE', confidence: 0, reason: 'RSI not in recovery trigger zone', sl: 0, tp: 0 };
+  }
+
+  onCandle(candle: any, context: MarketContext): Signal | null {
+    const candles = context.historicalCandles && context.historicalCandles.length > 0
+      ? context.historicalCandles
+      : [candle];
+    const result = this.evaluate(candles, context);
+
+    if (result.signal === 'NONE') {
+      return null;
+    }
+
+    return {
+      action: result.signal as 'BUY' | 'SELL' | 'CLOSE',
+      instrument: context.currentQuote ? context.currentQuote.instrument : candle.instrument,
+      strategy: this.name,
+      confidence: result.confidence,
+      reason: result.reason,
+      stopLossPips: result.stopLossPips ?? result.sl,
+      takeProfitPips: result.takeProfitPips ?? result.tp,
+      amountToRecover: result.amountToRecover,
+      atr: result.atr,
+    };
   }
 
   // --------------------------------------------------------------------------

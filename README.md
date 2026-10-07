@@ -1,154 +1,130 @@
-# Forex Paper Trading Bot (Node.js / TypeScript & Python ML)
+# Treadiiiio Trading Bot — Master System & Operational Guide
 
-This is a complete paper trading forex bot written in Node.js & TypeScript, paired with a Python FastAPI machine learning microservice (XGBoost). It aggregates price data, executes mock orders with spread/slippage, runs multiple rule-based and ML strategies side-by-side, tracks portfolio equity, and exposes REST APIs for reporting.
-
----
-
-## Project Structure
-
-```
-forex-paper-bot/
-├── src/
-│   ├── config/          # Zod env schema & validation
-│   ├── data/            # OANDA / Simulator price quotes & candles aggregator
-│   ├── strategy/        # Rule-based strategies (SMA Cross, RSI Reversion, BB Bands)
-│   ├── ml-client/       # HTTP client calling Python service
-│   ├── engine/          # Paper Trading Engine (execution, PnL, SL/TP checks)
-│   ├── risk/            # Risk limits (max positions, sizing, daily loss)
-│   ├── db/              # SQLite database schema
-│   ├── api/             # Express API server for state exposure
-│   └── index.ts         # Bootstraps price polling & loop
-├── ml-service/          # Python FastAPI ML microservice
-│   ├── features/        # Technical indicator engineer calculations (Pandas)
-│   ├── models/          # XGBoost model training & validation workflow
-│   ├── tests/           # Feature engineering unit tests
-│   └── main.py          # FastAPI application server
-├── tests/               # Jest tests for Trading Engine & Risk Manager
-├── package.json         # Node config & dependencies
-├── tsconfig.json        # TypeScript compiler options
-├── jest.config.js       # Jest test configuration
-└── README.md
-```
+Treadiiiio is an institutional-grade, multi-strategy quantitative trading bot written in **TypeScript (Node.js)** and **Python (FastAPI & XGBoost ML)**. It features real-time price processing, cost-aware walk-forward backtesting, dynamic market regime routing, fixed-fractional risk management, broker-level stop enforcement, and a live web dashboard.
 
 ---
 
-## Getting Started
+## 🏛 System Architecture
+
+```mermaid
+flowchart TD
+    subgraph Data & Network Layer
+        PF[PriceFeed REST API] --> TE[TradingEngine]
+        WSM[WebSocketManager Tick Feed] --> TE
+    end
+
+    subgraph Intelligence & Strategy Engine
+        TE --> RR[RegimeRouter & Detector]
+        RR --> StrategyEngine[Strategy Registry]
+        StrategyEngine --> Strategies[Power Breakout, Scalper 1m, MA Cross, SMC, ML Signal]
+        Strategies --> MLClient[Python FastAPI ML Microservice]
+    end
+
+    subgraph Risk & Execution Layer
+        TE --> RM[RiskManager & Safety Locks]
+        RM --> MT5C[MT5 Client Bridge]
+        MT5C --> Broker[MT5 Broker / Paper Simulator]
+    end
+
+    subgraph Telemetry & Control
+        TE --> DB[(SQLite Database - forex_bot.db)]
+        API[Express REST API + WebSocket Server] --> DB
+        API --> Dashboard[Next.js Web Dashboard]
+    end
+```
+
+---
+
+## 🚀 Quick Setup & Configuration
 
 ### Prerequisites
-- Node.js (version 20+)
-- Python (version 3.11+)
+- **Node.js**: v20+
+- **Python**: v3.11+
+- **MetaTrader 5 (Optional)**: For live broker execution (Bridge API on port 8000)
 
----
-
-### Step 1: Install Node.js Dependencies
-
-In the root directory, install npm packages:
+### Step 1: Clone & Install Dependencies
 ```bash
+# Install Node.js backend dependencies
 npm install
-```
 
----
+# Install Next.js dashboard dependencies
+cd dashboard && npm install && cd ..
+```
 
 ### Step 2: Configure Environment Variables
-
-Create your environment configuration:
-- Copy the `.env.example` in the root directory to `.env`.
-- Copy the `ml-service/.env.example` to `ml-service/.env`.
-
-#### Simulator Mode (Out of the Box)
-By default, `USE_SIMULATOR=true` in `.env`. This allows you to run, test, and retrain the bot offline using synthetic random-walk prices without requiring OANDA API credentials.
-
-#### Live/Practice Price Feed (OANDA API)
-To use real price feeds:
-1. Create a free demo account on [OANDA](https://www.oanda.com/).
-2. Generate an API Key (Personal Access Token) and find your account ID in the OANDA portal.
-3. Edit the `.env` file to set:
-   ```env
-   USE_SIMULATOR=false
-   OANDA_API_KEY=your_oanda_personal_token
-   OANDA_ACCOUNT_ID=your_oanda_practice_account_id
-   ```
-
----
-
-### Step 3: Install & Start Python ML Service
-
-Navigate to `ml-service` directory, create a virtual environment, install dependencies, and run:
-
+Copy `.env.example` to `.env` in root:
 ```bash
-cd ml-service
-python -m venv venv
-# Activate virtualenv:
-# Windows:
-.\venv\Scripts\activate
-# Unix/Mac:
-source venv/bin/activate
-
-pip install -r requirements.txt
-python main.py
-```
-The ML Service will start on `http://127.0.0.1:8000`.
-
----
-
-### Step 4: Run Node.js Bot
-
-Open a new terminal in the project root:
-
-- **Run in development mode (auto-reload)**:
-  ```bash
-  npm run dev
-  ```
-- **Run in production mode**:
-  ```bash
-  npm run build
-  npm start
-  ```
-
-*On startup, if the ML service is active, the bot automatically checks if a trained XGBoost model exists. If not, it pulls historical data, sends it to FastAPI, trains the model, and stores validation metrics in the database.*
-
----
-
-## Running Unit Tests
-
-### Node.js (Trading Engine & Risk Limits)
-```bash
-npm run test
+cp .env.example .env
 ```
 
-### Python (Feature Calculations)
-```bash
-cd ml-service
-python -m unittest tests/test_features.py
+Key Safety & Execution Parameters:
+```env
+# SAFETY MODE — PAPER TRADING (Always true by default)
+USE_SIMULATOR=true
+
+# API & Security Settings
+PORT=4000
+API_SECRET_KEY=YourSuperSecretKey32CharsLong!
+
+# Risk & Friction Model
+STARTING_BALANCE=10000
+SPREAD_PIPS=1.5
+SLIPPAGE_PIPS=0.5
+RISK_DAILY_LOSS_LIMIT_PCT=5.0
+RISK_MAX_CONCURRENT_POSITIONS=5
+
+# Strategy Controls
+ENABLED_STRATEGIES=power_breakout,scalping_1m,ma_crossover,rsi_reversion,ml_signal
+POWER_ADX_MIN=20.0
+POWER_ATR_EXPANSION_RATIO=1.05
 ```
 
 ---
 
-## API Documentation
+## 🧪 Walk-Forward Backtester
 
-The Express server exposes the following endpoints (default port `3000`):
+Run the cost-aware walk-forward backtesting suite across multi-regime historical data:
+```bash
+npx ts-node src/analytics/runWalkForward.ts
+```
 
-### 1. Account Summary
-- **Endpoint**: `GET /api/summary`
-- **Description**: Returns realized PnL, win rate, total trades, Max Drawdown, Sharpe ratio, and breakdown by strategy source (realized PnL, win rate, count).
+Output includes out-of-sample win rates, profit factor, expectancy per trade ($ and pips), Sharpe ratio, and Walk-Forward Efficiency (WFE) index.
 
-### 2. Live Portfolio Status
-- **Endpoint**: `GET /api/status`
-- **Description**: Returns active balances, current equity, unrealized PnL, and simulation status.
+---
 
-### 3. Active Positions
-- **Endpoint**: `GET /api/positions`
-- **Description**: Returns all currently open positions with entries, stop-loss, take-profit levels, and unrealized PnL.
+## 🛡 Risk Management & Safety Features
 
-### 4. Trade Log
-- **Endpoint**: `GET /api/trades?limit=100`
-- **Description**: Returns chronological trade log (both OPEN and CLOSED positions).
+1. **Fixed-Fractional Position Sizing**: Calculated dynamically from current account equity and stop loss distance:
+   $$\text{Units} = \frac{\text{Equity} \times \text{Risk \%}}{\text{SL Pips} \times \text{Pip Value}}$$
+2. **Hard Daily Circuit Breaker**: Auto-pauses trading when cumulative daily drawdown reaches 5% of starting equity.
+3. **Broker-Level Hard Stop Loss**: Every placed order guarantees an associated `sl_pips` ticket directly at the broker level.
+4. **Emergency Kill Switch**: Accessible via HTTP `POST /api/bot/kill` or dashboard button to pause trading and immediately liquidate all open positions.
 
-### 5. Equity Curve snapshots
-- **Endpoint**: `GET /api/equity`
-- **Description**: Returns historical equity curve snapshots over time.
+---
 
-### 6. Retrain Models
-- **Endpoint**: `POST /api/train`
-- **Payload**: `{"instrument": "EUR_USD", "count": 1000}`
-- **Description**: Manually triggers historical candle download, time-series training validation split, and model persistence on the Python service.
+## 📊 Running the Bot & Dashboard
+
+### Start Backend Engine & API Server
+```bash
+# Development Mode (auto-reload)
+npm run dev
+
+# Production Build
+npm run build
+npm start
+```
+
+### Start Live Dashboard
+```bash
+cd dashboard
+npm run dev
+```
+Open [http://localhost:3000](http://localhost:3000) to view real-time portfolio metrics, equity curves, active positions, and controls.
+
+---
+
+## 📋 Next Improvements (Ranked by Expected Edge & Impact)
+
+1. **High-Frequency Tick Storage & Order-Book L2 Microstructure Integration**: Store raw tick-by-tick level 2 order-book data for ultra-fast scalping entry confirmation.
+2. **Machine Learning Model Ensemble (XGBoost + LightGBM + LSTM)**: Upgrade ML microservice to ensemble predictions from XGBoost and neural network models.
+3. **Automated Dynamic Parameter Optimization (Optuna/Bayesian)**: Implement periodic automated hyperparameter optimization for Donchian and ATR thresholds across rolling 30-day windows.

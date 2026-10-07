@@ -101,15 +101,20 @@ export class RegimeRouter {
       return false;
     }
 
-    const trendStrategies = ['ma_crossover', 'power_breakout', 'ml_signal', 'asian_killzone'];
-    const rangeStrategies = ['rsi_reversion', 'bollinger_bands', 'grid_overlay', 'volatility_arbitrage', 'smc_liquidity'];
+    const trendStrategies = ['ma_crossover', 'power_breakout', 'ml_signal', 'asian_killzone', 'gold_alpha'];
+    const rangeStrategies = ['rsi_reversion', 'bollinger_bands', 'grid_overlay', 'volatility_arbitrage', 'smc_liquidity', 'gold_alpha'];
+
+    if (strategyName === 'scalping_1m' || strategyName === 'gold_alpha') {
+      // Scalping and Gold Alpha are permitted in both RANGING and TRENDING regimes
+      return regime === 'RANGING' || regime === 'TRENDING';
+    }
 
     if (regime === 'TRENDING') {
-      return trendStrategies.includes(strategyName) || strategyName === 'scalping_1m';
+      return trendStrategies.includes(strategyName);
     }
 
     if (regime === 'RANGING') {
-      return rangeStrategies.includes(strategyName) || strategyName === 'scalping_1m';
+      return rangeStrategies.includes(strategyName);
     }
 
     return true;

@@ -66,8 +66,8 @@ export function rsiZoneStance(candles: Candle[]): 'BUY' | 'SELL' | 'NEUTRAL' {
   if (candles.length < 15) return 'NEUTRAL';
   const closes = candles.map((c) => c.close);
   const rsi = calcRsi(closes, 14);
-  if (rsi < 50) return 'BUY';
-  if (rsi > 50) return 'SELL';
+  if (rsi > 50) return 'BUY';
+  if (rsi < 50) return 'SELL';
   return 'NEUTRAL';
 }
 
@@ -93,16 +93,16 @@ function bollingerBands(
 
 /**
  * Bollinger(20,2) band-position stance.
- * BUY  = price in lower half of band (below middle)
- * SELL = price in upper half of band (above middle)
+ * BUY  = price in upper half of band (momentum)
+ * SELL = price in lower half of band (bearish)
  */
 export function bollingerStance(candles: Candle[]): 'BUY' | 'SELL' | 'NEUTRAL' {
   if (candles.length < 20) return 'NEUTRAL';
   const closes = candles.map((c) => c.close);
   const { upper, lower, middle } = bollingerBands(closes, 20, 2);
   const price = closes[closes.length - 1];
-  if (price < middle) return 'BUY';
-  if (price > middle) return 'SELL';
+  if (price > middle) return 'BUY';
+  if (price < middle) return 'SELL';
   return 'NEUTRAL';
 }
 
@@ -117,29 +117,51 @@ export interface RuleConfirmationResult {
 
 /**
  * Checks how many of the three rule families agree with the ML signal direction.
- * NEUTRAL stances from a rule family are treated as non-agreeing (conservative).
+ * Supports both trend/momentum alignment and extreme mean-reversion setups for BOTH BUY and SELL.
  */
 export function checkRuleConfirmations(
   action: 'BUY' | 'SELL',
   candles: Candle[],
   minConfirmations: number = 1
 ): RuleConfirmationResult {
+  if (candles.length < 20) {
+    return { passed: true, agreementCount: 3, details: 'Insufficient candles for gate; bypassed.' };
+  }
+
+  const closes = candles.map((c) => c.close);
   const smaStance = smaTrendStance(candles);
-  const rsiStance = rsiZoneStance(candles);
-  const bbStance = bollingerStance(candles);
+  const rsi = calcRsi(closes, 14);
+  const { upper, lower, middle } = bollingerBands(closes, 20, 2);
+  const price = closes[closes.length - 1];
+
+  // 1. SMA Trend agreement
+  const smaAgrees = smaStance === action;
+
+  // 2. RSI agreement:
+  // For BUY: Bullish momentum (RSI >= 48) OR oversold bounce (RSI <= 35)
+  // For SELL: Bearish momentum (RSI <= 52) OR overbought rejection (RSI >= 65)
+  const rsiAgrees = action === 'BUY'
+    ? (rsi >= 48 || rsi <= 35)
+    : (rsi <= 52 || rsi >= 65);
+
+  // 3. Bollinger Band agreement:
+  // For BUY: Trading in upper half (price >= middle) OR lower band bounce (price <= lower * 1.002)
+  // For SELL: Trading in lower half (price <= middle) OR upper band rejection (price >= upper * 0.998)
+  const bbAgrees = action === 'BUY'
+    ? (price >= middle || price <= lower * 1.002)
+    : (price <= middle || price >= upper * 0.998);
 
   const stances = [
-    { name: 'SMA(3/8)', stance: smaStance },
-    { name: 'RSI(14)', stance: rsiStance },
-    { name: 'BB(20,2)', stance: bbStance },
+    { name: 'SMA(3/8)', agreed: smaAgrees, stance: smaStance },
+    { name: 'RSI(14)', agreed: rsiAgrees, stance: `RSI=${rsi.toFixed(1)}` },
+    { name: 'BB(20,2)', agreed: bbAgrees, stance: price >= middle ? 'UPPER_ZONE' : 'LOWER_ZONE' },
   ];
 
-  const agreeing = stances.filter((s) => s.stance === action);
-  const agreementCount = agreeing.length;
+  const agreementCount = stances.filter((s) => s.agreed).length;
   const passed = agreementCount >= minConfirmations;
 
   const details =
-    stances.map((s) => `${s.name}=${s.stance}`).join(', ') +
+    stances.map((s) => `${s.name}(${s.agreed ? 'AGREE' : 'DISAGREE'})`).join(', ') +
     ` | ML=${action} → agreements=${agreementCount}/${stances.length}`;
 
   return { passed, agreementCount, details };

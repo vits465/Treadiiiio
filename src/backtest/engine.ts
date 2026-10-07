@@ -45,7 +45,7 @@ export class EventDrivenBacktestEngine {
 
     const isJpy = candles[0].instrument.includes('JPY');
     const isXau = candles[0].instrument.includes('XAU');
-    const pipSize = (isJpy || isXau) ? 0.01 : 0.0001;
+    const pipSize = isXau ? 0.10 : (isJpy ? 0.01 : 0.0001);
 
     for (let i = 25; i < candles.length; i++) {
       const currentCandle = candles[i];

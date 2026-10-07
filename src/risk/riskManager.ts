@@ -6,6 +6,9 @@ import { RejectionLogger } from './rejectionLogger';
 import { TelegramNotifier } from '../notifier/telegram';
 import { CorrelationManager } from './correlationManager';
 import { calculateKellyRiskPct } from './kellySizing';
+import { SymbolNormalizer } from '../utils/symbolNormalizer';
+import { computeAtrPercentile } from './volatility';
+import { Candle } from '../data/priceFeed';
 
 export type SizeTier = 'DISCARDED' | 'REDUCED' | 'NORMAL' | 'STRETCH';
 
@@ -60,6 +63,9 @@ export class RiskManager {
   // Last sizing decision for read-only status reporting
   private static lastDecision: SizingDecision | null = null;
 
+  // Phase 5 Strategy Quarantine State
+  private static quarantinedStrategies: Set<string> = new Set();
+
   /**
    * Resets the daily circuit breaker lockout (manual reset or next-session reset).
    */
@@ -108,8 +114,10 @@ export class RiskManager {
     `).get(`${todayStr}%`) as { realizedToday: number | null };
 
     const realizedToday = row?.realizedToday || 0;
-    const equityDrift = currentEquity - effectiveDayStart;
-    const totalTodayPnL = realizedToday + openFloatingPnl + (equityDrift < 0 ? equityDrift : 0);
+    // Correct total PnL today relative to day start equity
+    const totalTodayPnL = (currentEquity > 0 && effectiveDayStart > 0)
+      ? (currentEquity - effectiveDayStart)
+      : (realizedToday + openFloatingPnl);
     const dailyPnlPct = (totalTodayPnL / effectiveDayStart) * 100;
 
     const maxLossAmount = effectiveDayStart * (config.RISK_DAILY_LOSS_LIMIT_PCT / 100);
@@ -222,9 +230,10 @@ export class RiskManager {
     instrument: string = 'EUR/USD'
   ): SizingDecision {
     const timestamp = new Date().toISOString();
-    const isJpy = instrument.includes('JPY');
-    const isXau = instrument.includes('XAU');
-    const pipSize = (isJpy || isXau) ? 0.01 : 0.0001;
+    const pipSize = SymbolNormalizer.getPipSize(instrument);
+    const contractSize = SymbolNormalizer.getContractSize(instrument);
+    const isGold = SymbolNormalizer.isGold(instrument);
+    const isJpy = SymbolNormalizer.isJpy(instrument);
 
     // Use Dynamic Kelly Criterion for Base Risk Cap (kelly is returned as a percentage e.g. 1.5%)
     const kellyPct = calculateKellyRiskPct();
@@ -280,7 +289,7 @@ export class RiskManager {
       }
     }
 
-    // Safety Invariant #1: Hard cap of 2% (RISK_MAX_POSITION_SIZE_PCT) must be strictly enforced on final risk
+    // Upper limit on final risk
     const hardCap = Math.max(config.RISK_MAX_POSITION_SIZE_PCT, config.RISK_STRETCH_CAP_PCT);
     effectiveRiskPct = Math.min(effectiveRiskPct, hardCap);
 
@@ -308,22 +317,26 @@ export class RiskManager {
     const riskUsdAtStop = accountEquity * (effectiveRiskPct / 100);
 
     // Convert stop pips to price distance
-    const slPips = stopDistancePips > 0 ? stopDistancePips : (isXau ? 900 : 45);
-    const slDistance = slPips * pipSize;
+    const slPips = stopDistancePips > 0 ? stopDistancePips : (isGold ? 20 : 25);
+    const slPriceDistance = slPips * pipSize;
+    const slDistanceUsd = isJpy ? (slPriceDistance / 150.0) : slPriceDistance;
 
     // Convert risk USD to position lots
-    const contractSize = isXau ? 100 : 100000;
-    const rawUnits = riskUsdAtStop / slDistance;
+    const rawUnits = riskUsdAtStop / slDistanceUsd;
     const rawVolume = rawUnits / contractSize;
 
-    // Min lot risk budget check: 0.01 lots = 1,000 units (or 1 unit gold)
+    // Floor to 0.01 lot increments
     let volume = Math.floor(rawVolume * 100) / 100;
 
-    // Strict Lot Size Bounds — strictly bounded between 0.01 and 0.07 lots
+    // Minimum broker lot size
     if (volume < 0.01) {
       volume = 0.01;
-    } else if (volume > 0.07) {
-      volume = 0.07;
+    }
+
+    // Upper bound cap on lots
+    const maxLots = 10.0;
+    if (volume > maxLots) {
+      volume = maxLots;
     }
 
     const decision: SizingDecision = {
@@ -479,8 +492,9 @@ export class RiskManager {
     `).get(startStr) as { realizedWeek: number | null };
 
     const realizedWeek = row?.realizedWeek || 0;
+    const effectiveBalance = Math.max(config.STARTING_BALANCE, currentBalance || 0);
+    const limitAmount = effectiveBalance * (config.RISK_WEEKLY_LOSS_LIMIT_PCT / 100);
     const totalWeekPnL = realizedWeek + currentUnrealized;
-    const limitAmount = config.STARTING_BALANCE * (config.RISK_WEEKLY_LOSS_LIMIT_PCT / 100);
 
     if (totalWeekPnL <= -limitAmount) {
       logger.warn(`Risk Management: Weekly loss limit breached (PnL: $${totalWeekPnL.toFixed(2)}, Limit: -$${limitAmount.toFixed(2)}).`);
@@ -617,6 +631,196 @@ export class RiskManager {
     return this.checkCorrelationCap(formattedPositions, instrument, action);
   }
 
+  /**
+   * Phase 5.1: Volatility Circuit Breaker
+   * Pauses new entries on a pair when its ATR spikes above the 95th percentile.
+   */
+  public static checkVolatilityCircuitBreaker(
+    instrument: string,
+    candles: Candle[],
+    thresholdPctile: number = 0.95
+  ): boolean {
+    if (!candles || candles.length < 42) return true;
+    const pct = computeAtrPercentile(candles, 14, 100);
+    if (pct !== undefined && pct >= thresholdPctile) {
+      logger.warn(`[VOLATILITY BREAKER] ${instrument} ATR percentile ${(pct * 100).toFixed(1)}% exceeds threshold ${(thresholdPctile * 100).toFixed(0)}%. Entry paused.`);
+      RejectionLogger.log(
+        'RiskManager.checkVolatilityCircuitBreaker',
+        'VOLATILITY_CIRCUIT_BREAKER' as any,
+        instrument,
+        undefined,
+        undefined,
+        `ATR percentile ${(pct * 100).toFixed(1)}% >= ${(thresholdPctile * 100).toFixed(0)}%`
+      );
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * Phase 5.2: Equity-Curve Throttle
+   * When current equity is below its own 20-trade moving average, cut base risk in half (0.5x).
+   */
+  public static getEquityCurveThrottleMultiplier(currentEquity: number): number {
+    try {
+      const rows = db.prepare(`
+        SELECT equity FROM equity_snapshots
+        ORDER BY time DESC LIMIT 20
+      `).all() as Array<{ equity: number }>;
+
+      if (rows && rows.length >= 10) {
+        const avgEquity = rows.reduce((acc, r) => acc + r.equity, 0) / rows.length;
+        if (currentEquity < avgEquity) {
+          logger.info(`[EQUITY CURVE THROTTLE] Current equity $${currentEquity.toFixed(2)} below 20-trade MA $${avgEquity.toFixed(2)}. Cutting base risk in half (0.5x).`);
+          return 0.5;
+        }
+      }
+    } catch (err) {
+      // Non-fatal fallback
+    }
+    return 1.0;
+  }
+
+  /**
+   * Phase 5.3: Per-Strategy Quarantine
+   * If a strategy's rolling 30-trade profit factor drops below 1.0, auto-disable it,
+   * notify via Telegram and dashboard, and require manual re-enable.
+   */
+  public static checkStrategyQuarantine(strategy: string, instrument: string = 'GLOBAL'): boolean {
+    if (this.quarantinedStrategies.has(strategy)) {
+      logger.warn(`[STRATEGY QUARANTINE] Signal rejected: Strategy '${strategy}' is quarantined (rolling PF < 1.0). Manual re-enable required.`);
+      RejectionLogger.log(
+        'RiskManager.checkStrategyQuarantine',
+        'STRATEGY_QUARANTINED' as any,
+        instrument,
+        undefined,
+        strategy,
+        'Strategy quarantined due to rolling profit factor < 1.0'
+      );
+      return false;
+    }
+
+    try {
+      const trades = db.prepare(`
+        SELECT pnl FROM trades
+        WHERE strategy = ? AND status = 'CLOSED'
+        ORDER BY exit_time DESC LIMIT 30
+      `).all(strategy) as Array<{ pnl: number }>;
+
+      if (trades && trades.length >= 15) {
+        const grossProfit = trades.filter(t => t.pnl > 0).reduce((acc, t) => acc + t.pnl, 0);
+        const grossLoss = Math.abs(trades.filter(t => t.pnl < 0).reduce((acc, t) => acc + t.pnl, 0));
+        const rollingPf = grossLoss > 0 ? grossProfit / grossLoss : (grossProfit > 0 ? 99 : 0);
+
+        if (rollingPf < 1.0) {
+          this.quarantinedStrategies.add(strategy);
+          logger.error(`🚨 [STRATEGY QUARANTINED] Strategy '${strategy}' auto-disabled. Rolling 30-trade Profit Factor: ${rollingPf.toFixed(2)} < 1.0.`);
+          TelegramNotifier.sendMessage(
+            `🚨 *STRATEGY AUTO-QUARANTINED*\n` +
+            `Strategy: \`${strategy}\`\n` +
+            `Rolling 30-Trade PF: *${rollingPf.toFixed(2)}* (< 1.0)\n` +
+            `New entries for this strategy HALTED until manual review.`
+          );
+          return false;
+        }
+      }
+    } catch (err) {
+      // Non-fatal
+    }
+    return true;
+  }
+
+  public static reEnableStrategy(strategy: string): void {
+    this.quarantinedStrategies.delete(strategy);
+    logger.info(`[STRATEGY RE-ENABLED] Strategy '${strategy}' removed from quarantine.`);
+  }
+
+  public static getQuarantinedStrategies(): string[] {
+    return Array.from(this.quarantinedStrategies);
+  }
+
+  /**
+   * Phase 5.4: Correlation-Aware Group Exposure
+   * Caps net same-direction exposure per correlation group.
+   */
+  public static checkCorrelationGroupExposure(instrument: string, openPositions: PositionInfo[], action: 'BUY' | 'SELL'): boolean {
+    const formatted = openPositions.map(p => ({
+      instrument: p.instrument,
+      side: p.action as 'LONG' | 'SHORT' | 'BUY' | 'SELL'
+    }));
+    const result = CorrelationManager.checkGroupNetExposure(formatted, instrument, action, 2);
+    if (!result.allowed) {
+      logger.warn(`[CORRELATION GROUP GUARD] ${result.reason}`);
+      RejectionLogger.log(
+        'RiskManager.checkCorrelationGroupExposure',
+        'CORRELATION_LIMIT' as any,
+        instrument,
+        action,
+        undefined,
+        result.reason
+      );
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * Phase 5.5: Margin & Leverage Guard for MT5 path
+   * Maximum effective leverage and minimum free-margin % checks before any live order.
+   */
+  public static checkMarginLeverageGuard(
+    accountBalance: number,
+    openEquity: number,
+    proposedUnits: number,
+    instrument: string,
+    currentPrice: number,
+    openPositions: PositionInfo[]
+  ): boolean {
+    const maxLeverage = config.RISK_MAX_LEVERAGE || 20;
+    const effectiveEquity = Math.max(10, openEquity || accountBalance);
+
+    let currentNotional = 0;
+    for (const pos of openPositions) {
+      currentNotional += pos.units * pos.entryPrice;
+    }
+
+    const proposedNotional = proposedUnits * currentPrice;
+    const totalNotional = currentNotional + proposedNotional;
+    const effectiveLeverage = totalNotional / effectiveEquity;
+
+    if (effectiveLeverage > maxLeverage) {
+      logger.warn(`[MARGIN GUARD] Effective leverage ${effectiveLeverage.toFixed(1)}:1 exceeds cap of ${maxLeverage}:1 for ${instrument}.`);
+      RejectionLogger.log(
+        'RiskManager.checkMarginLeverageGuard',
+        'LEVERAGE_EXCEEDED' as any,
+        instrument,
+        undefined,
+        undefined,
+        `Effective leverage ${effectiveLeverage.toFixed(1)}:1 > max ${maxLeverage}:1`
+      );
+      return false;
+    }
+
+    const requiredMargin = totalNotional / maxLeverage;
+    const freeMargin = effectiveEquity - requiredMargin;
+    const freeMarginPct = (freeMargin / effectiveEquity) * 100;
+
+    if (freeMarginPct < 30) {
+      logger.warn(`[MARGIN GUARD] Free margin ${freeMarginPct.toFixed(1)}% below required buffer (30%) for ${instrument}.`);
+      RejectionLogger.log(
+        'RiskManager.checkMarginLeverageGuard',
+        'MARGIN_GUARD' as any,
+        instrument,
+        undefined,
+        undefined,
+        `Free margin buffer ${freeMarginPct.toFixed(1)}% < 30%`
+      );
+      return false;
+    }
+
+    return true;
+  }
+
   public static getEffectiveRiskPct(balance: number, mode: string = 'conservative'): number {
     let basePct = config.RISK_BASE_PCT_PER_TRADE;
     if (balance < 150) {
@@ -636,6 +840,26 @@ export class RiskManager {
     atrPercentile?: number,
     currentPrice?: number
   ): SizedOrder {
+    const pipSize = SymbolNormalizer.getPipSize(instrument);
+    const contractSize = SymbolNormalizer.getContractSize(instrument);
+    const slPips = stopLossPips > 0 ? stopLossPips : 25;
+    const isJpy = SymbolNormalizer.isJpy(instrument);
+    const slPriceDistance = slPips * pipSize;
+    const slDistanceUsd = isJpy ? (slPriceDistance / (currentPrice || 150.0)) : slPriceDistance;
+
+    // Small-account rule: cancel instead of rounding up when min lot exceeds budget
+    const minLotUnits = 0.01 * contractSize;
+    const minLotDollarRisk = minLotUnits * slDistanceUsd;
+    const maxAllowedRiskUsd = currentBalance * (config.RISK_MAX_POSITION_SIZE_PCT / 100);
+
+    if (currentBalance < 200 && minLotDollarRisk > maxAllowedRiskUsd * 1.05) {
+      logger.info(
+        `[SIZING CANCELLED - MIN LOT EXCEEDS BUDGET] ${instrument} | Balance: $${currentBalance.toFixed(2)} | ` +
+        `Max Risk: $${maxAllowedRiskUsd.toFixed(2)} | Min 0.01 Lot Risk: $${minLotDollarRisk.toFixed(2)} | SL: ${slPips} pips`
+      );
+      return { units: 0, riskPctUsed: 0, amountToRisk: 0 };
+    }
+
     const decision = this.calculatePositionSize(
       currentBalance,
       stopLossPips,
@@ -644,14 +868,19 @@ export class RiskManager {
       instrument
     );
 
-    const isXau = instrument.includes('XAU');
-    const contractSize = isXau ? 100 : 100000;
-    const units = decision.lots * contractSize;
+    if (decision.lots === 0 || decision.sizeTier === 'DISCARDED') {
+      return { units: 0, riskPctUsed: 0, amountToRisk: 0 };
+    }
+
+    // Phase 5.2: Apply Equity-Curve Throttle multiplier
+    const throttleMultiplier = this.getEquityCurveThrottleMultiplier(currentBalance);
+    const units = Math.max(minLotUnits, decision.lots * contractSize * throttleMultiplier);
+    const riskPctUsed = decision.effectiveRiskPct * throttleMultiplier;
 
     return {
       units,
-      riskPctUsed: decision.lots === 0 ? 0 : decision.effectiveRiskPct,
-      amountToRisk: decision.lots === 0 ? 0 : decision.riskUsdAtStop,
+      riskPctUsed,
+      amountToRisk: decision.riskUsdAtStop * throttleMultiplier,
     };
   }
 }

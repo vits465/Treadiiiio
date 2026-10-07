@@ -134,7 +134,8 @@ export function initDb() {
       direction TEXT,
       strategy TEXT,
       details TEXT,
-      ml_confidence REAL
+      ml_confidence REAL,
+      regime TEXT
     );
 
     CREATE TABLE IF NOT EXISTS ml_models (
@@ -165,6 +166,14 @@ export function initDb() {
       wfe_score REAL,
       monte_carlo_max_dd REAL
     );
+
+    CREATE TABLE IF NOT EXISTS audit_actions (
+      id TEXT PRIMARY KEY,
+      timestamp TEXT NOT NULL,
+      source TEXT NOT NULL,
+      action TEXT NOT NULL,
+      details TEXT
+    );
   `);
 
   // Create indexes for common queries
@@ -180,14 +189,25 @@ export function initDb() {
 
   // In-place migrations for pre-existing databases (PRAGMA-based, idempotent)
   ensureColumn('trades', 'risk_pct', 'REAL');
+  ensureColumn('trades', 'slippage_pips', 'REAL DEFAULT 0');
+  ensureColumn('trades', 'latency_ms', 'INTEGER DEFAULT 0');
+  ensureColumn('trades', 'exit_reason', 'TEXT');
+  ensureColumn('trades', 'is_simulator', 'INTEGER DEFAULT 1');
+  ensureColumn('trades', 'model_id', 'TEXT');
   ensureColumn('positions', 'partial_booked', 'INTEGER DEFAULT 0');
   ensureColumn('positions', 'initial_risk_usd', 'REAL DEFAULT 0');
   ensureColumn('positions', 'partial_tp_hit', 'INTEGER DEFAULT 0');
   ensureColumn('positions', 'tp1_price', 'REAL');
   ensureColumn('positions', 'tp2_price', 'REAL');
   ensureColumn('positions', 'initial_units', 'REAL');
+  ensureColumn('positions', 'is_simulator', 'INTEGER DEFAULT 1');
   ensureColumn('ml_confidence_log', 'accepted', 'INTEGER DEFAULT 1');
   ensureColumn('filter_rejections', 'ml_confidence', 'REAL');
+  ensureColumn('filter_rejections', 'regime', 'TEXT');
+  ensureColumn('ml_models', 'model_hash', 'TEXT');
+  ensureColumn('ml_models', 'training_window', 'TEXT');
+  ensureColumn('ml_models', 'calibration_data', 'TEXT');
+  ensureColumn('ml_models', 'onnx_path', 'TEXT');
 
   // Migrate from JSON if this is a fresh file-based DB and JSON file exists
   if (!isMemory) {
