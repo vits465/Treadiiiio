@@ -56,6 +56,17 @@ const tradeRateLimiter = rateLimit({
   validate: { trustProxy: false },
 });
 
+// Root endpoint for platform health and verification
+app.get('/', (req, res) => {
+  res.json({
+    status: 'online',
+    service: 'Treadiiiio Forex & Gold Bot Engine',
+    version: '1.0.0',
+    health: '/api/health',
+    timestamp: new Date().toISOString(),
+  });
+});
+
 // Public endpoints (no auth): /api/health
 app.get('/api/health', async (req, res) => {
   try {
@@ -1248,8 +1259,8 @@ export function startApiServer() {
   const port = config.PORT;
 
   const tryListen = (attempt = 1) => {
-    server.listen(port, () => {
-      logger.info(`🚀 Unified REST & WebSocket server running at http://localhost:${port}`);
+    server.listen(port, '0.0.0.0', () => {
+      logger.info(`🚀 Unified REST & WebSocket server running at http://0.0.0.0:${port}`);
     });
 
     server.once('error', (err: any) => {
