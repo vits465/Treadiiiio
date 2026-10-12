@@ -124,6 +124,10 @@ const envSchema = z.object({
   ENABLE_ATR_TRAILING_STOP: z.string().transform((val) => val.toLowerCase() === 'true').default('true'),
   TRAILING_STOP_ATR_MULTIPLIER: z.string().transform((val) => parseFloat(val)).default('1.5'),
   MAX_HOLDING_TIME_MINUTES: z.string().transform((val) => parseInt(val, 10)).default('1440'),
+
+  // Broker & Prop-Firm Withdrawal Compliance Guards
+  WITHDRAWAL_COMPLIANCE_MODE: z.string().transform((val) => val.toLowerCase() === 'true').default('true'),
+  MIN_HOLDING_TIME_SECONDS: z.string().transform((val) => parseInt(val, 10)).default('60'),
 });
 
 const parsed = envSchema.safeParse(process.env);

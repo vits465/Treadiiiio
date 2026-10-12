@@ -557,6 +557,12 @@ export class TradingEngine {
         }
       }
 
+      // Prop-Firm & Broker Withdrawal Compliance: Enforce minimum holding duration (e.g. 60s)
+      // for voluntary profit-taking exits to prevent flags for "sub-minute tick scalping / latency arbitrage".
+      const entryTimeMs = pos.entryTime ? new Date(pos.entryTime).getTime() : 0;
+      const holdingSeconds = entryTimeMs > 0 ? (Date.now() - entryTimeMs) / 1000 : 9999;
+      const meetsWithdrawalHoldRule = !config.WITHDRAWAL_COMPLIANCE_MODE || holdingSeconds >= (config.MIN_HOLDING_TIME_SECONDS || 60);
+
       // 2. 1:2 RRR 50% Partial Close Check
       let tp1Hit = false;
       if (config.ENABLE_PARTIAL_PROFIT_AT_1R) {
@@ -567,7 +573,7 @@ export class TradingEngine {
         }
       }
 
-      if (!partialBooked && tp1Hit) {
+      if (!partialBooked && tp1Hit && meetsWithdrawalHoldRule) {
         const halfUnits = pos.units / 2;
         const isXau = pos.instrument.includes('XAU');
         const halfVolume = halfUnits / (isXau ? 100 : 100000);
@@ -609,7 +615,7 @@ export class TradingEngine {
         tp2Hit = unrealizedPnL >= initialRiskUsd * 3;
       }
 
-      if (tp2Hit) {
+      if (tp2Hit && meetsWithdrawalHoldRule) {
         logger.info(`[1:3 RRR TARGET ACHIEVED] Position ${pos.id} (${pos.instrument}) reached 1:3 RRR profit. Closing remaining position in full...`);
         if (quote) {
           await this.closePosition(pos.id, quote, '1:3 RRR Target Achieved (Full Exit)');
@@ -619,12 +625,16 @@ export class TradingEngine {
 
       // Cash Take Profit check (only if not managing 1:2/1:3 RRR partial exit system)
       const maxTradeProfitUsd = config.RISK_TRADE_TAKE_PROFIT_USD;
-      if (!tp2Price && !partialBooked && unrealizedPnL >= maxTradeProfitUsd && maxTradeProfitUsd > 0) {
+      if (!tp2Price && !partialBooked && unrealizedPnL >= maxTradeProfitUsd && maxTradeProfitUsd > 0 && meetsWithdrawalHoldRule) {
         logger.info(`[CASH TAKE PROFIT] Position ${pos.id} reached profit of $${unrealizedPnL.toFixed(2)} (Target: $${maxTradeProfitUsd.toFixed(2)}). Closing to lock in profit...`);
         if (quote) {
           await this.closePosition(pos.id, quote, 'Cash Take Profit Hit');
           continue;
         }
+      }
+
+      if ((tp1Hit || tp2Hit) && !meetsWithdrawalHoldRule) {
+        logger.debug(`[WITHDRAWAL COMPLIANCE] Deferring profit exit for ${pos.instrument} (${pos.id}): Held for ${Math.round(holdingSeconds)}s. Minimum ${config.MIN_HOLDING_TIME_SECONDS}s required for broker withdrawal compliance.`);
       }
 
       // --- Trailing Stop & Break-Even Profit Locking ---
@@ -697,7 +707,7 @@ export class TradingEngine {
           }
         }
 
-        if (trailingStopHit) {
+        if (trailingStopHit && meetsWithdrawalHoldRule) {
           logger.info(`🎯 [PROFIT LOCKED] Trailing stop of ${trailingPips} pips hit for ${pos.instrument} (${pos.id}). Closing trade to lock gains...`);
           await this.closePosition(pos.id, quote, 'Trailing Stop Profit Locked');
           continue;
