@@ -49,6 +49,7 @@ import { AICopilotChat } from './components/AICopilotChat';
 import { TradeRationaleModal } from './components/TradeRationaleModal';
 import { MarketHeatmap } from './components/MarketHeatmap';
 import AIPipelineTracker from './components/AIPipelineTracker';
+import { InfrastructureConnection } from './components/InfrastructureConnection';
 import { sounds, sendDesktopNotification } from '../lib/audioNotifier';
 import { getConfig, ConfigData } from '../lib/api-client';
 
@@ -320,6 +321,11 @@ export default function OverviewPage() {
             <span>{new Date().toLocaleTimeString()} UTC</span>
           </div>
         </div>
+      </motion.div>
+
+      {/* Real-Time Cloud Infrastructure & Connection Matrix */}
+      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
+        <InfrastructureConnection botOnline={!loading} botStatusData={botStatus} />
       </motion.div>
 
       {/* 7-Step AI Institutional Pipeline Tracker (From Screenshot Flow) */}
