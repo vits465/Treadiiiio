@@ -106,8 +106,24 @@ Your frontend dashboard is hosted on Vercel at `https://treadiiiio.vercel.app`. 
 
 1. Go to your **Vercel Project Settings** → **Environment Variables**.
 2. Update:
-   - `NEXT_PUBLIC_BOT_API_URL` = `https://<your-voroa-subdomain>.getvoroa.com`
-   - `NEXT_PUBLIC_BOT_WS_URL` = `wss://<your-voroa-subdomain>.getvoroa.com/ws`
+   - `NEXT_PUBLIC_BOT_API_URL` = `https://treadiiiio-engine.getvoroa.com`
+   - `NEXT_PUBLIC_BOT_WS_URL` = `wss://treadiiiio-engine.getvoroa.com/ws`
 3. Click **Save** and trigger a **Redeploy** on Vercel.
+
+---
+
+## 5. Dashboard Security & Operator Gateway
+
+The web terminal hosted on Vercel is secured with a strict operator authentication gate:
+
+- **Dashboard URL**: `https://treadiiiio.vercel.app/login`
+- **Master Operator Username**: `AdiVish`
+- **Master Password**: `VISHA@2611`
+- **Clearance Level**: Master Operator Clearance (Institutional Terminal Access)
+- **Features**:
+  - Full route protection preventing unauthorized access
+  - Session persistence with 256-bit hashed tokens and SameSite cookies
+  - Cloud Infrastructure & Network Links matrix displaying Voroa Mumbai engine health, real-time latency ping, live market price stream, and SQLite WAL database uptime
+  - 100% responsive layout on mobile, tablet, and widescreen desktop with slide-down navigation drawer
 
 🎉 **Done!** Your bot is now operating 24/7 on Voroa in Mumbai, streaming real-time trade signals to your Vercel dashboard without requiring your local PC or localtunnel.
