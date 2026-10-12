@@ -293,7 +293,7 @@ export default function SettingsPage() {
                 <span>Connected Broker Account</span>
                 <span className="text-emerald-400 font-extrabold text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20">Active MT5 Bridge</span>
               </div>
-              <div className="text-white font-bold text-sm">Account #{config.MT5_ACCOUNT || '113769804'}</div>
+              <div className="text-white font-bold text-sm">Account #{config.MT5_ACCOUNT || '113883228'}</div>
               <div className="text-cyan-400 text-xs">Server: {config.MT5_SERVER || 'MetaQuotes-Demo'}</div>
             </div>
             

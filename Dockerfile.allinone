@@ -1,0 +1,56 @@
+# =============================================================
+# All-In-One Unified Container (Treadiiiio Trading Bot)
+# Runs both Node.js Trading Engine (Public on PORT)
+# AND Python FastAPI ML Microservice (Internal on 8000)
+# =============================================================
+FROM python:3.11-slim-bookworm
+
+WORKDIR /app
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    NODE_ENV=production \
+    PORT=4000 \
+    ML_SERVICE_URL=http://127.0.0.1:8000
+
+# Install Node.js 20 LTS, supervisor, and build tools
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    ca-certificates \
+    gnupg \
+    build-essential \
+    supervisor \
+    && mkdir -p /etc/apt/keyrings \
+    && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \
+    && echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" | tee /etc/apt/sources.list.d/nodesource.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies for ML microservice
+COPY ml-service/requirements.txt ./ml-service/
+RUN pip install --no-cache-dir -r ml-service/requirements.txt
+
+# Install Node dependencies and build TypeScript engine
+COPY package*.json tsconfig.json ./
+RUN npm ci
+
+COPY src ./src
+RUN npm run build
+RUN npm prune --omit=dev
+
+# Copy ML service application code
+COPY ml-service ./ml-service
+
+# Setup directories and permissions
+RUN mkdir -p /app/data /app/logs /var/log/supervisor
+COPY docker/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+COPY docker/entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
+EXPOSE 4000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+  CMD curl -f http://localhost:${PORT:-4000}/api/health || exit 1
+
+CMD ["/app/entrypoint.sh"]

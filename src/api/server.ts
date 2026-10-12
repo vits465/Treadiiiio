@@ -263,7 +263,7 @@ app.get('/api/status', async (req, res) => {
       tradeDirection: config.TRADE_DIRECTION,
       maxDailyTrades: config.RISK_MAX_DAILY_TRADES,
       todayTradesCount,
-      mt5Account: process.env.MT5_ACCOUNT || '113769804',
+      mt5Account: process.env.MT5_ACCOUNT || '113883228',
       mt5Server: process.env.MT5_SERVER || 'MetaQuotes-Demo',
     });
   } catch (error: any) {
@@ -622,7 +622,7 @@ const handleBotStatus = (req: express.Request, res: express.Response) => {
     tradeDirection: config.TRADE_DIRECTION,
     maxDailyTrades: config.RISK_MAX_DAILY_TRADES,
     todayTradesCount: todayTradesRow?.todayCount || 0,
-    mt5Account: process.env.MT5_ACCOUNT || '113769804',
+    mt5Account: process.env.MT5_ACCOUNT || '113883228',
     mt5Server: process.env.MT5_SERVER || 'MetaQuotes-Demo',
   });
 };
@@ -910,7 +910,7 @@ app.get('/api/config', (req, res) => {
     TRADE_DIRECTION: config.TRADE_DIRECTION,
     ENABLE_STRICT_MTF_GATE: config.ENABLE_STRICT_MTF_GATE,
     RISK_MAX_DAILY_TRADES: config.RISK_MAX_DAILY_TRADES,
-    MT5_ACCOUNT: process.env.MT5_ACCOUNT || '113769804',
+    MT5_ACCOUNT: process.env.MT5_ACCOUNT || '113883228',
     MT5_SERVER: process.env.MT5_SERVER || 'MetaQuotes-Demo',
   });
 });

@@ -75,9 +75,9 @@ export class GoldAlphaStrategy implements Strategy {
     const defaultAtr = isXau ? 2.5 : 0.0020;
     const effectiveAtr = currentAtr && currentAtr > 0 ? currentAtr : defaultAtr;
 
-    // Dynamic SL & TP (1.2x ATR SL, 2.5x ATR TP -> 1:2.08 RRR)
-    const stopLossPips = Math.max(15, Math.round((effectiveAtr * 1.2) / pipSize));
-    const takeProfitPips = Math.max(30, Math.round((effectiveAtr * 2.5) / pipSize));
+    // Dynamic SL & TP (1.5x ATR SL, 4.0x ATR TP -> 1:2.67 RRR — lets winners run)
+    const stopLossPips = Math.max(20, Math.round((effectiveAtr * 1.5) / pipSize));
+    const takeProfitPips = Math.max(60, Math.round((effectiveAtr * 4.0) / pipSize));
 
     const currentClose = closes[len - 1];
     const prevClose = closes[len - 2];

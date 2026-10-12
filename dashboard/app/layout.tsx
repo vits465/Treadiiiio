@@ -199,7 +199,7 @@ export default function RootLayout({
               <div className="hidden lg:flex items-center space-x-2 px-3 py-1.5 rounded-xl bg-slate-900/90 border border-slate-800 text-xs font-mono shadow-inner">
                 <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
                 <span className="text-slate-400 font-sans font-bold">MT5:</span>
-                <span className="text-cyan-300 font-extrabold">{botStatusData?.mt5Account || '113769804'}</span>
+                <span className="text-cyan-300 font-extrabold">{botStatusData?.mt5Account || '113883228'}</span>
                 <span className="text-slate-600">|</span>
                 <span className="text-slate-400 font-sans font-bold">Trades:</span>
                 <span className="text-amber-400 font-extrabold">{botStatusData?.todayTradesCount || 0}/{botStatusData?.maxDailyTrades || 10}</span>

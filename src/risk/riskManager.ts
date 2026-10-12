@@ -237,7 +237,9 @@ export class RiskManager {
 
     // Use Dynamic Kelly Criterion for Base Risk Cap (kelly is returned as a percentage e.g. 1.5%)
     const kellyPct = calculateKellyRiskPct();
-    const perTradeCapPct = Math.min(kellyPct, config.RISK_PER_TRADE_CAP_PCT, config.RISK_MAX_POSITION_SIZE_PCT);
+    // Micro-account override: hard cap at 1% for accounts under $200 to prevent catastrophic sizing
+    const microAccountCap = accountEquity < 200 ? 1.0 : config.RISK_PER_TRADE_CAP_PCT;
+    const perTradeCapPct = Math.min(kellyPct, microAccountCap, config.RISK_MAX_POSITION_SIZE_PCT);
 
     const effectiveCap = perTradeCapPct;
     

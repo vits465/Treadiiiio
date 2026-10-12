@@ -86,8 +86,8 @@ export class Scalper1mStrategy implements Strategy {
 
     const configuredTpPips = config.SCALPER_TP_PIPS || 6.0;
     const configuredSlPips = config.SCALPER_SL_PIPS || 6.0;
-    const slPips = Math.max(configuredSlPips, Math.round((currentAtr * 1.0) / pipSize));
-    const tpPips = Math.max(configuredTpPips, Math.round((currentAtr * 2.0) / pipSize));
+    const slPips = Math.max(configuredSlPips, Math.round((currentAtr * 0.8) / pipSize));
+    const tpPips = Math.max(configuredTpPips, Math.round((currentAtr * 3.0) / pipSize));
     const tpDistance = tpPips * pipSize;
 
     // 6. Hard Spread Filter: Skip entry if current spread > 25% of TP distance

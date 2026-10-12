@@ -638,9 +638,9 @@ export class TradingEngine {
         const pipSize = isXau ? 0.10 : (isJpy ? 0.01 : 0.0001);
         const currentPrice = pos.action === 'BUY' ? quote.bid : quote.ask;
         
-        // Trailing Stop parameters: activate after 12 pips profit ($1.20), trail by 10 pips ($1.00)
-        const activationPips = isXau ? 12 : 8;
-        const trailingPips = isXau ? 10 : 8; 
+        // Trailing Stop parameters: activate after 25 pips profit for Gold, trail by 15 pips
+        const activationPips = isXau ? 25 : 12;
+        const trailingPips = isXau ? 15 : 10; 
         
         const posRow = db.prepare(`SELECT max_favorable_price, stop_loss FROM positions WHERE id = ?`).get(pos.id) as any;
         let maxFavorable = posRow?.max_favorable_price || pos.entryPrice;
@@ -656,8 +656,8 @@ export class TradingEngine {
 
           const profitPips = (currentPrice - pos.entryPrice) / pipSize;
           
-          // Auto Break-Even Lock: If profit >= 12 pips and SL is still below Break-Even, move SL to Break-Even + 2 pips ($0.20)
-          const breakEvenSl = pos.entryPrice + (2 * pipSize);
+          // Auto Break-Even Lock: If profit >= activation and SL is still below Break-Even, move SL to Break-Even + 8 pips ($0.80)
+          const breakEvenSl = pos.entryPrice + (8 * pipSize);
           if (config.ENABLE_BREAK_EVEN_AT_1R && !partialBooked && profitPips >= activationPips && (!currentSl || currentSl < breakEvenSl)) {
             db.prepare(`UPDATE positions SET stop_loss = ? WHERE id = ?`).run(breakEvenSl, pos.id);
             logger.info(`[BREAK-EVEN LOCKED] Moved SL to Break-Even (+2 pips) for ${pos.instrument} (${pos.id}) at ${breakEvenSl.toFixed(2)}.`);
@@ -682,8 +682,8 @@ export class TradingEngine {
 
           const profitPips = (pos.entryPrice - currentPrice) / pipSize;
 
-          // Auto Break-Even Lock for SELL: Move SL to Break-Even - 2 pips ($0.20)
-          const breakEvenSl = pos.entryPrice - (2 * pipSize);
+          // Auto Break-Even Lock for SELL: Move SL to Break-Even - 8 pips ($0.80)
+          const breakEvenSl = pos.entryPrice - (8 * pipSize);
           if (config.ENABLE_BREAK_EVEN_AT_1R && !partialBooked && profitPips >= activationPips && (!currentSl || currentSl > breakEvenSl)) {
             db.prepare(`UPDATE positions SET stop_loss = ? WHERE id = ?`).run(breakEvenSl, pos.id);
             logger.info(`[BREAK-EVEN LOCKED] Moved SL to Break-Even (+2 pips) for ${pos.instrument} (${pos.id}) at ${breakEvenSl.toFixed(2)}.`);

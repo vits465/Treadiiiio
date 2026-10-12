@@ -1,6 +1,9 @@
 import os
 from dotenv import load_dotenv
-import MetaTrader5 as mt5
+try:
+    import MetaTrader5 as mt5
+except ImportError:
+    mt5 = None
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from typing import Literal, Optional
@@ -16,6 +19,11 @@ if os.path.exists(local_env_path):
 router = APIRouter(prefix="/mt5", tags=["MT5 Broker Bridge"])
 
 def ensure_mt5_connection():
+    if mt5 is None:
+        raise HTTPException(
+            status_code=501,
+            detail="MetaTrader 5 Python bridge is only supported on Windows host environments."
+        )
     if not mt5.initialize():
         raise HTTPException(status_code=500, detail=f"MT5 initialize failed, error code: {mt5.last_error()}")
         

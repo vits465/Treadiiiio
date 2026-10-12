@@ -228,7 +228,7 @@ export default function OverviewPage() {
   const stats = [
     {
       title: 'MT5 Live Account',
-      value: `#${botStatus?.mt5Account || '113769804'}`,
+      value: `#${botStatus?.mt5Account || '113883228'}`,
       subtitle: `${botStatus?.mt5Server || 'MetaQuotes-Demo'} • $${balance.toFixed(2)} Balance`,
       icon: DollarSign,
       color: 'text-amber-400',
@@ -294,7 +294,7 @@ export default function OverviewPage() {
           </p>
           <div className="flex flex-wrap items-center gap-2 mt-2.5">
             <span className="text-[11px] px-2.5 py-1 rounded-lg font-bold bg-cyan-950/40 text-cyan-400 border border-cyan-500/30 font-mono">
-              MT5 #{botStatus?.mt5Account || '113769804'} (MetaQuotes-Demo)
+              MT5 #{botStatus?.mt5Account || '113883228'} (MetaQuotes-Demo)
             </span>
             <span className="text-[11px] px-2.5 py-1 rounded-lg font-bold bg-amber-950/40 text-amber-400 border border-amber-500/30 font-mono">
               Limit: {botStatus?.todayTradesCount || 0} / {botStatus?.maxDailyTrades || 10} Trades Today
