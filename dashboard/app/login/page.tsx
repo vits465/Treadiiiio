@@ -16,7 +16,7 @@ import {
   Cpu
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { validateCredentials, createSession, getSession } from '../../lib/auth';
+import { validateCredentials, createSession, getSession, clearSession } from '../../lib/auth';
 
 export default function LoginPage() {
   const [username, setUsername] = useState('');
@@ -25,10 +25,19 @@ export default function LoginPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
+  const [logoutNotice, setLogoutNotice] = useState(false);
   const router = useRouter();
 
-  // If already logged in, redirect to dashboard
+  // Handle logout query param and check existing session
   useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const urlParams = new URLSearchParams(window.location.search);
+      if (urlParams.get('logout') === 'true') {
+        clearSession();
+        setLogoutNotice(true);
+        return;
+      }
+    }
     if (getSession()) {
       router.push('/');
     }
@@ -167,6 +176,21 @@ export default function LoginPage() {
             </label>
             <span className="text-[10px] text-slate-500 font-mono">Operator ID: #001</span>
           </div>
+
+          {/* Logout Success Notice */}
+          <AnimatePresence>
+            {logoutNotice && !error && (
+              <motion.div
+                initial={{ opacity: 0, y: -6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -6 }}
+                className="flex items-center gap-2.5 text-emerald-400 text-xs bg-emerald-500/10 border border-emerald-500/25 p-3 rounded-xl font-mono"
+              >
+                <ShieldCheck className="w-4 h-4 shrink-0 text-emerald-400" />
+                <span>Session safely terminated. Operator logged out.</span>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           {/* Error Notice */}
           <AnimatePresence>

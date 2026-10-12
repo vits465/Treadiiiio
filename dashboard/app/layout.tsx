@@ -107,7 +107,7 @@ export default function RootLayout({
   const handleLogout = () => {
     clearSession();
     setIsAuthenticated(false);
-    router.push('/login');
+    router.push('/login?logout=true');
   };
 
   const navItems = [
@@ -170,12 +170,12 @@ export default function RootLayout({
             ) : isAuthenticated ? (
               <>
                 {/* Responsive Fixed Header */}
-                <header className="sticky top-0 z-40 bg-[#030712]/90 backdrop-blur-2xl border-b border-slate-800/80 px-3 sm:px-6 py-2.5 sm:py-3.5 flex items-center justify-between shadow-2xl shadow-black/50">
-                  <div className="flex items-center space-x-2 sm:space-x-3.5">
-                    {/* Mobile Hamburger menu */}
+                <header className="sticky top-0 z-40 bg-[#030712]/90 backdrop-blur-2xl border-b border-slate-800/80 px-3 sm:px-6 py-2.5 sm:py-3 flex items-center justify-between shadow-2xl shadow-black/50">
+                  <div className="flex items-center space-x-2 sm:space-x-3 shrink-0">
+                    {/* Mobile & Laptop Hamburger Menu */}
                     <button
                       onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-                      className="xl:hidden p-2 rounded-xl bg-slate-900 text-slate-300 hover:text-white border border-slate-800 transition-colors"
+                      className="2xl:hidden p-2 rounded-xl bg-slate-900 text-slate-300 hover:text-white border border-slate-800 transition-colors"
                       aria-label="Toggle navigation menu"
                     >
                       {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
@@ -205,8 +205,8 @@ export default function RootLayout({
                     </Link>
                   </div>
 
-                  {/* Desktop Navigation Links */}
-                  <nav className="hidden xl:flex space-x-0.5 bg-slate-900/60 p-1 rounded-2xl border border-slate-800/80 backdrop-blur-md">
+                  {/* Desktop Wide Navigation Links (2xl screens: 1536px+) */}
+                  <nav className="hidden 2xl:flex space-x-0.5 bg-slate-900/60 p-1 rounded-2xl border border-slate-800/80 backdrop-blur-md">
                     {navItems.map((item) => {
                       const Icon = item.icon;
                       const isActive = pathname === item.href;
@@ -229,9 +229,9 @@ export default function RootLayout({
                   </nav>
 
                   {/* Controls & Operator Bar */}
-                  <div className="flex items-center space-x-1.5 sm:space-x-2.5">
-                    {/* MT5 Account Pill (Desktop & Tablet) */}
-                    <div className="hidden lg:flex items-center space-x-2 px-2.5 py-1.5 rounded-xl bg-slate-900/90 border border-slate-800 text-xs font-mono">
+                  <div className="flex items-center space-x-1.5 sm:space-x-2 shrink-0">
+                    {/* MT5 Account Pill (Widescreen 2xl) */}
+                    <div className="hidden 2xl:flex items-center space-x-2 px-2.5 py-1.5 rounded-xl bg-slate-900/90 border border-slate-800 text-xs font-mono">
                       <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
                       <span className="text-slate-400 font-sans font-bold">MT5:</span>
                       <span className="text-cyan-300 font-extrabold">{botStatusData?.mt5Account || '113883228'}</span>
@@ -254,14 +254,14 @@ export default function RootLayout({
                       {enginePaused === false ? (
                         <>
                           <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-                          <span className="hidden sm:inline">ENGINE ACTIVE</span>
-                          <span className="sm:hidden text-[10px]">ACTIVE</span>
+                          <span className="hidden md:inline">ENGINE ACTIVE</span>
+                          <span className="md:hidden text-[10px]">ACTIVE</span>
                         </>
                       ) : (
                         <>
                           <Pause className="w-3.5 h-3.5 text-amber-400" />
-                          <span className="hidden sm:inline">ENGINE PAUSED</span>
-                          <span className="sm:hidden text-[10px]">PAUSED</span>
+                          <span className="hidden md:inline">ENGINE PAUSED</span>
+                          <span className="md:hidden text-[10px]">PAUSED</span>
                         </>
                       )}
                     </button>
@@ -282,7 +282,7 @@ export default function RootLayout({
                       title="Liquidate all positions and pause bot"
                     >
                       <ShieldAlert className="h-3.5 w-3.5" />
-                      <span className="hidden md:inline">FLATTEN</span>
+                      <span className="hidden lg:inline">FLATTEN</span>
                     </button>
 
                     {/* Voroa Online Status Indicator */}
@@ -290,23 +290,24 @@ export default function RootLayout({
                       botOnline ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30' : 'bg-rose-500/10 text-rose-400 border-rose-500/30'
                     }`}>
                       {botOnline ? (
-                        <><Wifi className="h-3 w-3 animate-pulse" /><span className="hidden md:inline">ONLINE</span></>
+                        <><Wifi className="h-3 w-3 animate-pulse" /><span className="hidden sm:inline">ONLINE</span></>
                       ) : (
-                        <><WifiOff className="h-3 w-3" /><span className="hidden md:inline">OFFLINE</span></>
+                        <><WifiOff className="h-3 w-3" /><span className="hidden sm:inline">OFFLINE</span></>
                       )}
                     </div>
 
-                    {/* Operator Badge (AdiVish) */}
-                    <div className="hidden sm:flex items-center space-x-1.5 px-2.5 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-bold font-mono">
-                      <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
-                      <span>AdiVish</span>
+                    {/* Operator Clearance Badge (AdiVish) */}
+                    <div className="flex items-center space-x-1 sm:space-x-1.5 px-2 sm:px-2.5 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-bold font-mono">
+                      <ShieldCheck className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                      <span className="hidden xs:inline">AdiVish</span>
                     </div>
 
                     {/* Logout Button */}
                     <button
                       onClick={handleLogout}
-                      className="p-1.5 rounded-xl bg-slate-900 hover:bg-rose-500/20 text-slate-400 hover:text-rose-300 border border-slate-800 hover:border-rose-500/40 transition-colors"
+                      className="p-1.5 sm:p-2 rounded-xl bg-slate-900 hover:bg-rose-500/20 text-slate-400 hover:text-rose-300 border border-slate-800 hover:border-rose-500/40 transition-colors"
                       title="Log Out (AdiVish)"
+                      aria-label="Log Out"
                     >
                       <LogOut className="h-4 w-4" />
                     </button>
@@ -320,7 +321,7 @@ export default function RootLayout({
                       initial={{ opacity: 0, height: 0 }}
                       animate={{ opacity: 1, height: "auto" }}
                       exit={{ opacity: 0, height: 0 }}
-                      className="xl:hidden bg-slate-950/95 border-b border-slate-800/90 backdrop-blur-2xl overflow-hidden z-30 sticky top-[57px] sm:top-[65px]"
+                      className="2xl:hidden bg-slate-950/95 border-b border-slate-800/90 backdrop-blur-2xl overflow-hidden z-30 sticky top-[57px] sm:top-[65px]"
                     >
                       <div className="p-4 space-y-3">
                         {/* Operator Profile Banner in Mobile Menu */}

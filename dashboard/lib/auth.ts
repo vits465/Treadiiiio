@@ -67,8 +67,14 @@ export function clearSession(): void {
     localStorage.removeItem(AUTH_USER_KEY);
     localStorage.removeItem(AUTH_TOKEN_KEY);
     localStorage.removeItem("antigravity_session");
+    localStorage.removeItem("treadiiiio_auth");
+    sessionStorage.clear();
     document.cookie = "treadiiiio_session=; path=/; max-age=0; SameSite=Strict";
   }
+}
+
+export function logout(): void {
+  clearSession();
 }
 
 export function isAuthenticated(): boolean {
