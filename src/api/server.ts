@@ -56,19 +56,8 @@ const tradeRateLimiter = rateLimit({
   validate: { trustProxy: false },
 });
 
-// Root endpoint for platform health and verification
-app.get('/', (req, res) => {
-  res.json({
-    status: 'online',
-    service: 'Treadiiiio Forex & Gold Bot Engine',
-    version: '1.0.0',
-    health: '/api/health',
-    timestamp: new Date().toISOString(),
-  });
-});
-
-// Public endpoints (no auth): /api/health
-app.get('/api/health', async (req, res) => {
+// Unified health check handler
+const handleHealthCheck = async (req: express.Request, res: express.Response) => {
   try {
     let dbConnected = false;
     try {
@@ -84,6 +73,7 @@ app.get('/api/health', async (req, res) => {
 
     res.json({
       status: 'ok',
+      service: 'Treadiiiio Forex & Gold Bot Engine',
       enginePaused: TradingEngine.isPaused(),
       dbConnected,
       mlServiceReachable,
@@ -93,7 +83,14 @@ app.get('/api/health', async (req, res) => {
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
-});
+};
+
+// Public health & ping endpoints (handles /helth typo, /health, /api/health, /healthz, and /)
+app.get('/helth', handleHealthCheck);
+app.get('/health', handleHealthCheck);
+app.get('/healthz', handleHealthCheck);
+app.get('/api/health', handleHealthCheck);
+app.get('/', handleHealthCheck);
 
 // ForexFactory Economic Calendar & News endpoint
 import { NewsFilter } from '../risk/newsFilter';
@@ -440,7 +437,7 @@ app.get('/api/strategies', (req, res) => {
 
     const registeredNames = StrategyRegistry.getAll().map(s => s.name);
     const allStrategyNames = Array.from(new Set([...registeredNames, 'ml_signal']));
-    
+
     // Check which ones are currently enabled
     const enabledStrats = config.ENABLED_STRATEGIES;
 
@@ -500,7 +497,7 @@ app.get('/api/risk-status', async (req, res) => {
     `).get(`${todayStr}%`) as { realizedToday: number | null };
 
     const realizedToday = row?.realizedToday || 0;
-    
+
     // PROP FIRM METRICS
     const startOfDayBalance = balance - realizedToday;
     const dailyLossUsed = Math.max(0, -(realizedToday + unrealized));
@@ -574,7 +571,7 @@ app.get('/api/risk-status', async (req, res) => {
 
 app.get('/api/model-status', (req, res) => {
   const instrument = req.query.instrument as string || 'EUR_USD';
-  
+
   // Find last model training run in DB
   const row = db.prepare(`
     SELECT timestamp, metrics_json
@@ -603,7 +600,7 @@ app.get('/api/model-status', (req, res) => {
 app.post('/api/model-retrain', async (req, res) => {
   const instrument = req.body.instrument || 'EUR_USD';
   logger.info(`Dashboard triggered manual model retrain for ${instrument}`);
-  
+
   try {
     const candles = await PriceFeed.fetchCandles(instrument, 1000, config.CANDLE_GRANULARITY);
     const metrics = await MLClient.train(instrument, candles);
@@ -683,7 +680,7 @@ const handleKill = async (req: express.Request, res: express.Response) => {
     try {
       const { TelegramNotifier } = require('../notifier/telegram');
       TelegramNotifier.sendMessage(`🛑 *KILL SWITCH ACTIVATED*\n${closedCount} position(s) closed. Trading HALTED.`);
-    } catch {}
+    } catch { }
 
     logger.warn(`🛑 KILL SWITCH ACTIVATED — ${closedCount} positions force-closed.`);
     res.json({ killed: true, closedCount });
@@ -860,7 +857,7 @@ app.post('/api/trade/execute', tradeRateLimiter, async (req, res) => {
         tpPips = takeProfit;
       }
     }
-    
+
     const orderId = await TradingEngine.executeOrder(
       targetPair, action, 'manual', quote, slPips, tpPips,
       undefined, undefined, 0.85
@@ -880,10 +877,10 @@ app.post('/api/trade/close', async (req, res) => {
     const { positionId } = req.body;
     const pos = TradingEngine.getOpenPositions().find(p => p.id === positionId);
     if (!pos) return res.status(404).json({ error: 'Position not found' });
-    
+
     const quote = PriceFeed.getLatestQuote(pos.instrument);
     if (!quote) return res.status(400).json({ error: 'No live quote available for instrument.' });
-    
+
     await TradingEngine.closePosition(pos.id, quote, 'Manual Close');
     res.json({ success: true });
   } catch (err: any) {
@@ -943,7 +940,7 @@ app.post('/api/config', configRateLimiter, (req, res) => {
         // Safety cap — the dashboard can tighten risk but never raise it past 2%
         return res.status(400).json({
           error: `RISK_MAX_POSITION_SIZE_PCT cannot exceed 2% (got ${riskVal}%). ` +
-                 `This cap is a hard safety limit and cannot be raised via the API.`
+            `This cap is a hard safety limit and cannot be raised via the API.`
         });
       }
     }
@@ -1022,9 +1019,9 @@ app.post('/api/config', configRateLimiter, (req, res) => {
     }
 
     fs.writeFileSync(envPath, envData);
-    
+
     res.json({ success: true, message: 'Config updated. Restarting...' });
-    
+
     // Auto restart to apply new env vars
     setTimeout(() => {
       process.exit(1);
@@ -1084,7 +1081,7 @@ app.get('/api/analytics/demo-real-sim', (req, res) => {
       FROM trades
       WHERE status = 'CLOSED'
     `).all() as any[];
-    
+
     const mappedTrades = trades.map(t => ({
       pnl: t.pnl || 0,
       entryPrice: t.entry_price,
@@ -1093,7 +1090,7 @@ app.get('/api/analytics/demo-real-sim', (req, res) => {
       instrument: t.instrument,
       units: t.units
     }));
-    
+
     const startingBalance = config.STARTING_BALANCE;
     const report = DemoLiveSimulator.runSimulation(mappedTrades, startingBalance);
     res.json(report);
@@ -1105,7 +1102,7 @@ app.get('/api/analytics/demo-real-sim', (req, res) => {
 app.get('/api/analytics/scaling-roadmap', (req, res) => {
   try {
     const balance = TradingEngine.getBalance();
-    
+
     const firstTrade = db.prepare(`SELECT entry_time FROM trades ORDER BY entry_time ASC LIMIT 1`).get() as any;
     let currentMonth = 1;
     if (firstTrade && firstTrade.entry_time) {
@@ -1124,32 +1121,32 @@ app.get('/api/analytics/scaling-roadmap', (req, res) => {
 });
 
 app.get('/api/analytics/kelly-sizing', (req, res) => {
-   try {
-     const balance = TradingEngine.getBalance();
-     
-     const closedTrades = db.prepare(`
+  try {
+    const balance = TradingEngine.getBalance();
+
+    const closedTrades = db.prepare(`
         SELECT pnl FROM trades WHERE status='CLOSED' ORDER BY entry_time DESC LIMIT 100
      `).all() as any[];
-     
-     const wins = closedTrades.filter(t => t.pnl > 0);
-     const losses = closedTrades.filter(t => t.pnl <= 0);
-     const winRate = closedTrades.length > 0 ? wins.length / closedTrades.length : 0.55;
-     
-     const avgWin = wins.length > 0 ? wins.reduce((a, b) => a + b.pnl, 0) / wins.length : 15;
-     const avgLoss = losses.length > 0 ? Math.abs(losses.reduce((a, b) => a + b.pnl, 0) / losses.length) : 10;
-     const profitFactor = avgLoss > 0 ? avgWin / avgLoss : 1.5;
 
-     const low = KellySizing.calculatePositionSize({ winRate, profitFactor, confidenceTier: 'LOW', currentEquity: balance });
-     const mid = KellySizing.calculatePositionSize({ winRate, profitFactor, confidenceTier: 'MID', currentEquity: balance });
-     const high = KellySizing.calculatePositionSize({ winRate, profitFactor, confidenceTier: 'HIGH', currentEquity: balance });
+    const wins = closedTrades.filter(t => t.pnl > 0);
+    const losses = closedTrades.filter(t => t.pnl <= 0);
+    const winRate = closedTrades.length > 0 ? wins.length / closedTrades.length : 0.55;
 
-     res.json({
-        metrics: { winRate, profitFactor, sampleSize: closedTrades.length },
-        tiers: { low, mid, high }
-     });
-   } catch(e: any) {
-     res.status(500).json({ error: e.message });
-   }
+    const avgWin = wins.length > 0 ? wins.reduce((a, b) => a + b.pnl, 0) / wins.length : 15;
+    const avgLoss = losses.length > 0 ? Math.abs(losses.reduce((a, b) => a + b.pnl, 0) / losses.length) : 10;
+    const profitFactor = avgLoss > 0 ? avgWin / avgLoss : 1.5;
+
+    const low = KellySizing.calculatePositionSize({ winRate, profitFactor, confidenceTier: 'LOW', currentEquity: balance });
+    const mid = KellySizing.calculatePositionSize({ winRate, profitFactor, confidenceTier: 'MID', currentEquity: balance });
+    const high = KellySizing.calculatePositionSize({ winRate, profitFactor, confidenceTier: 'HIGH', currentEquity: balance });
+
+    res.json({
+      metrics: { winRate, profitFactor, sampleSize: closedTrades.length },
+      tiers: { low, mid, high }
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 app.get('/api/risk/correlation', (req, res) => {
