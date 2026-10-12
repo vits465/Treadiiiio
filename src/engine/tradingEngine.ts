@@ -487,19 +487,15 @@ export class TradingEngine {
   public static async updatePositionsAndCheckSLTP(quotes: Quote[]) {
     const localPositions = this.getOpenPositions();
 
-    // Fetch MT5 live positions
+    // Fetch MT5 live positions (if bridge is active)
     const mt5Positions = await MT5Client.getPositions();
-    if (mt5Positions === null) {
-      // MT5 bridge temporarily unavailable, do NOT assume positions closed
-      return;
-    }
-    const mt5Ids = new Set(mt5Positions.map(p => p.order_id));
+    const mt5Ids = new Set((mt5Positions || []).map(p => p.order_id));
 
     for (const pos of localPositions) {
       const quote = quotes.find((q) => q.instrument === pos.instrument);
       
-      // If position was closed in MT5 (e.g. SL or TP hit) - skipped in simulator mode
-      if (!config.USE_SIMULATOR && (pos as any).brokerOrderId && !mt5Ids.has((pos as any).brokerOrderId)) {
+      // If position was closed in MT5 (e.g. SL or TP hit) - skipped in simulator mode or if MT5 is offline
+      if (!config.USE_SIMULATOR && mt5Positions !== null && (pos as any).brokerOrderId && !mt5Ids.has((pos as any).brokerOrderId)) {
         logger.info(`Position ${pos.id} (Broker: ${(pos as any).brokerOrderId}) no longer found in MT5. Assuming closed by broker.`);
         if (quote) {
            await this.closePosition(pos.id, quote, 'Closed by MT5 (SL/TP/Manual)');
@@ -507,7 +503,7 @@ export class TradingEngine {
         continue;
       }
 
-      const mt5Match = mt5Positions.find(p => p.order_id === (pos as any).brokerOrderId);
+      const mt5Match = mt5Positions ? mt5Positions.find(p => p.order_id === (pos as any).brokerOrderId) : null;
       let unrealizedPnL = 0;
       
       if (mt5Match) {

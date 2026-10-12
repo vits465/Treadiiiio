@@ -33,6 +33,8 @@ export interface MT5Quote {
 
 export class MT5Client {
   private static baseURL = `${config.ML_SERVICE_URL}/mt5`;
+  private static isBridgeDown = false;
+  private static lastBridgeCheck = 0;
 
   /**
    * Helper for exponential backoff retries
@@ -45,8 +47,15 @@ export class MT5Client {
     let attempt = 0;
     while (attempt < maxRetries) {
       try {
-        return await operation();
+        const res = await operation();
+        this.isBridgeDown = false;
+        return res;
       } catch (error: any) {
+        if (error.code === 'ECONNREFUSED' || error.message?.includes('ECONNREFUSED')) {
+          this.isBridgeDown = true;
+          this.lastBridgeCheck = Date.now();
+          throw error;
+        }
         attempt++;
         if (attempt >= maxRetries) {
           throw error;
@@ -166,13 +175,21 @@ export class MT5Client {
     if (config.USE_SIMULATOR) {
       return []; // Return empty mock positions array
     }
+    if (this.isBridgeDown && Date.now() - this.lastBridgeCheck < 60000) {
+      return null;
+    }
     try {
       const response = await this.withRetry(() => axios.get(`${this.baseURL}/positions`, {
-        headers: { 'X-API-Key': config.API_SECRET_KEY }
+        headers: { 'X-API-Key': config.API_SECRET_KEY },
+        timeout: 2000
       }));
       return response.data;
     } catch (error: any) {
-      logger.error(`[MT5] Failed to get positions: ${error.message}`);
+      if (error.code !== 'ECONNREFUSED') {
+        logger.error(`[MT5] Failed to get positions: ${error.message}`);
+      } else {
+        logger.debug(`[MT5] Bridge is offline (port 8000). Engine continuing with local tracking.`);
+      }
       return null;
     }
   }
@@ -195,27 +212,39 @@ export class MT5Client {
         time: Date.now() / 1000
       };
     }
+    if (this.isBridgeDown && Date.now() - this.lastBridgeCheck < 60000) {
+      return null;
+    }
     try {
       const response = await this.withRetry(() => axios.get(`${this.baseURL}/quote`, {
         params: { instrument },
-        headers: { 'X-API-Key': config.API_SECRET_KEY }
+        headers: { 'X-API-Key': config.API_SECRET_KEY },
+        timeout: 2000
       }), 2, 500);
       return response.data;
     } catch (error: any) {
-      logger.error(`[MT5] Failed to get quote for ${instrument}: ${error.message}`);
+      if (error.code !== 'ECONNREFUSED') {
+        logger.error(`[MT5] Failed to get quote for ${instrument}: ${error.message}`);
+      }
       return null;
     }
   }
 
   public static async getAccountInfo(): Promise<{ login: number; balance: number; equity: number; profit: number; margin: number; margin_free: number } | null> {
     if (config.USE_SIMULATOR) return null;
+    if (this.isBridgeDown && Date.now() - this.lastBridgeCheck < 60000) {
+      return null;
+    }
     try {
       const response = await this.withRetry(() => axios.get(`${this.baseURL}/account`, {
-        headers: { 'X-API-Key': config.API_SECRET_KEY }
+        headers: { 'X-API-Key': config.API_SECRET_KEY },
+        timeout: 2000
       }), 2, 500);
       return response.data;
     } catch (error: any) {
-      logger.error(`[MT5] Failed to get account info: ${error.message}`);
+      if (error.code !== 'ECONNREFUSED') {
+        logger.error(`[MT5] Failed to get account info: ${error.message}`);
+      }
       return null;
     }
   }
