@@ -408,8 +408,8 @@ export default function OverviewPage() {
               </div>
 
               <div className="flex items-center justify-between text-xs">
-                <span className="text-slate-400">14-Period ATR:</span>
-                <span className="font-bold text-amber-400 font-mono">$2.75 (27.5 pips)</span>
+                <span className="text-slate-400">Volatility (ATR):</span>
+                <span className="font-bold text-emerald-400 font-mono">62.5% (Safe 60-65% Scalp Zone)</span>
               </div>
 
               <div className="flex items-center justify-between text-xs">

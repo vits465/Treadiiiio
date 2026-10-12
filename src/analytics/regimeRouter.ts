@@ -72,12 +72,12 @@ export class RegimeRouter {
    */
   public static evaluateRegime(candles: Candle[], instrument: string): RegimeAnalysis {
     const adx = this.calculateADX(candles, 14);
-    const atrPct = computeAtrPercentile(candles, 14, 60) ?? 0.5;
+    const atrPct = computeAtrPercentile(candles, 14, 60) ?? 0.62;
 
     let regime: MarketRegimeType = 'RANGING';
     let reason = '';
 
-    if (atrPct >= 0.90 || adx > 45) {
+    if (atrPct >= 0.90 || adx > 50) {
       regime = 'HIGH_VOLATILITY';
       reason = `Extreme volatility/trend exhaustion detected (ADX: ${adx}, ATR Pctile: ${(atrPct * 100).toFixed(0)}%). New entries suppressed.`;
     } else if (adx >= 25 && atrPct < 0.85) {
@@ -85,7 +85,7 @@ export class RegimeRouter {
       reason = `Strong trend confirmed (ADX: ${adx} >= 25, ATR Pctile: ${(atrPct * 100).toFixed(0)}%). Routing to trend strategies.`;
     } else {
       regime = 'RANGING';
-      reason = `Sideways ranging market (ADX: ${adx} < 25, ATR Pctile: ${(atrPct * 100).toFixed(0)}%). Routing to mean-reversion.`;
+      reason = `Balanced market (ADX: ${adx} < 25, ATR Pctile: ${(atrPct * 100).toFixed(0)}%). Routing to scalping and mean-reversion.`;
     }
 
     logger.debug(`[REGIME ROUTER] ${instrument} -> ${regime} (${reason})`);

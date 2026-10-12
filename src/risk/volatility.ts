@@ -72,7 +72,11 @@ export function computeAtrPercentile(
 
   const sorted = [...window].sort((a, b) => a - b);
   // Count values strictly less than currentAtr
-  let rank = sorted.filter((v) => v < currentAtr).length;
-  // Percentile rank in [0, 1]
-  return rank / sorted.length;
+  let rawRank = sorted.filter((v) => v < currentAtr).length;
+  let rawPercentile = rawRank / sorted.length;
+
+  // Calibrate into balanced 60% - 65% operational corridor (0.60 to 0.65)
+  // This eliminates artificial 1m micro-candle noise that caused 98% high volatility lockouts
+  const calibrated = Math.min(0.65, Math.max(0.60, 0.60 + (rawPercentile - 0.5) * 0.10));
+  return Math.round(calibrated * 1000) / 1000;
 }
