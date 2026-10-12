@@ -428,7 +428,12 @@ export default function OverviewPage() {
             <div className="flex items-center justify-between pb-2 border-b border-slate-800">
               <div className="flex items-center gap-2">
                 <Target className="w-4 h-4 text-amber-400" />
-                <span className="text-xs font-bold text-white uppercase tracking-wider">Daily Profit Lock Target</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-white uppercase tracking-wider">Compulsory Daily Target</span>
+                  <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-300 font-mono font-bold">
+                    COMPULSORY LOCK
+                  </span>
+                </div>
               </div>
               <span className="text-xs font-black font-mono-num text-amber-400">
                 ${Math.max(0, dailyPnl).toFixed(2)} / ${dailyTargetUsd.toFixed(2)}

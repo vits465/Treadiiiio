@@ -513,6 +513,8 @@ export class RiskManager {
     return true;
   }
 
+  private static dailyTargetAlertDate: string | null = null;
+
   public static checkDailyProfitLock(
     balance: number,
     currentUnrealized: number,
@@ -529,13 +531,37 @@ export class RiskManager {
 
     const realizedToday = row?.realizedToday || 0;
     const totalTodayPnL = realizedToday + currentUnrealized;
-    const targetAmountUsd = config.RISK_DAILY_SOFT_TARGET_USD;
+    const targetAmountUsd = config.RISK_DAILY_PROFIT_TARGET_USD || config.RISK_DAILY_SOFT_TARGET_USD || 10.0;
 
     if (targetAmountUsd > 0 && totalTodayPnL >= targetAmountUsd) {
-      const isHighConviction = (strategy === 'ml_signal' && (confidence ?? 0) >= 0.80) || strategy === 'smc_liquidity';
-      if (isHighConviction) return true;
-      return true; // Soft target is non-binding as per Master Prompt requirements
+      logger.info(
+        `🎯 [COMPULSORY DAILY TARGET ACHIEVED] Today's total PnL is +$${totalTodayPnL.toFixed(2)} ` +
+        `(Compulsory Target: $${targetAmountUsd.toFixed(2)}). Compulsory Profit Lock activated.`
+      );
+
+      if (this.dailyTargetAlertDate !== today) {
+        this.dailyTargetAlertDate = today;
+        TelegramNotifier.sendMessage(
+          `🎯 *COMPULSORY DAILY PROFIT TARGET ACHIEVED!*\n` +
+          `• Realized Profit Today: +$${realizedToday.toFixed(2)}\n` +
+          `• Total Daily PnL: +$${totalTodayPnL.toFixed(2)}\n` +
+          `• Target: $${targetAmountUsd.toFixed(2)} (100% COMPLETE)\n\n` +
+          `🔒 *Compulsory Profit Lock Active:* Trading is secured for today to protect your daily earnings!`
+        );
+      }
+
+      RejectionLogger.log(
+        'RiskManager.checkDailyProfitLock',
+        'DAILY_PROFIT_LOCK' as any,
+        instrument,
+        undefined,
+        strategy,
+        `Compulsory Daily Target ($${targetAmountUsd.toFixed(2)}) reached! Today PnL: +$${totalTodayPnL.toFixed(2)}`
+      );
+
+      return false; // COMPULSORY PROFIT LOCK: Disallow new entries to protect today's completed target
     }
+
     return true;
   }
 
