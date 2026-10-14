@@ -55,29 +55,48 @@ class RedisManager {
     }
   }
 
+  private static memoryCache: Map<string, { value: any; expiresAt: number }> = new Map();
+
   public static async setCache(key: string, value: any, ttlSeconds: number = 60): Promise<void> {
     const client = await this.getClient();
-    if (!client) return;
-    try {
-      await client.setEx(key, ttlSeconds, JSON.stringify(value));
-    } catch (err) {
-      logger.debug(`Redis setCache error for key ${key}: ${err}`);
+    if (client) {
+      try {
+        await client.setEx(key, ttlSeconds, JSON.stringify(value));
+        return;
+      } catch (err) {
+        logger.debug(`Redis setCache error for key ${key}: ${err}`);
+      }
     }
+
+    // In-memory caching fallback
+    this.memoryCache.set(key, {
+      value,
+      expiresAt: Date.now() + ttlSeconds * 1000,
+    });
   }
 
   public static async getCache<T>(key: string): Promise<T | null> {
     const client = await this.getClient();
-    if (!client) return null;
-    try {
-      const data = await client.get(key);
-      if (data) {
-        return JSON.parse(data) as T;
+    if (client) {
+      try {
+        const data = await client.get(key);
+        if (data) {
+          return JSON.parse(data) as T;
+        }
+        return null;
+      } catch (err) {
+        logger.debug(`Redis getCache error for key ${key}: ${err}`);
       }
-      return null;
-    } catch (err) {
-      logger.debug(`Redis getCache error for key ${key}: ${err}`);
+    }
+
+    // In-memory caching fallback
+    const entry = this.memoryCache.get(key);
+    if (!entry) return null;
+    if (Date.now() > entry.expiresAt) {
+      this.memoryCache.delete(key);
       return null;
     }
+    return entry.value as T;
   }
 }
 

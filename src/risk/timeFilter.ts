@@ -4,8 +4,8 @@ import { logger } from '../logger';
 // Standard session windows in UTC
 const SESSIONS = {
   ASIAN:  { start: 23, end: 8 },   // 23:00 - 08:00 UTC (Tokyo/Sydney)
-  LONDON: { start: 8,  end: 16 },  // 08:00 - 16:00 UTC
-  NY:     { start: 13, end: 21 },  // 13:00 - 21:00 UTC
+  LONDON: { start: 7,  end: 16 },  // 07:00 - 16:00 UTC (Includes London pre-market open)
+  NY:     { start: 12, end: 21 },  // 12:00 - 21:00 UTC (Includes NY early morning/overlap)
 };
 
 // Static holiday list (Format: MM-DD)

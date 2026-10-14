@@ -208,7 +208,8 @@ async function bootstrap() {
         const currentRegime = regimeAnalysis.regime;
 
         if (!TradingEngine.isPaused()) {
-          for (const strategy of enabledStrategies) {
+          const currentStrategies = StrategyRegistry.getEnabledStrategies(config.ENABLED_STRATEGIES);
+          for (const strategy of currentStrategies) {
             const activePosition = TradingEngine.getActivePosition(pair, strategy.name);
             const openPositionsCount = TradingEngine.getOpenPositionsCount();
             const accountEquity = TradingEngine.getBalance() + TradingEngine.getOpenPositions().reduce((sum, p) => sum + p.unrealizedPnL, 0);

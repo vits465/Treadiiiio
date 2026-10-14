@@ -56,6 +56,18 @@ function toAVInterval(granularity: string): string {
   return map[granularity] || '60min';
 }
 
+// Twelve Data granularity mapping
+function toTDInterval(granularity: string): string {
+  const g = granularity.toLowerCase();
+  if (g === '1m' || g === '1min') return '1min';
+  if (g === '5m' || g === '5min') return '5min';
+  if (g === '15m' || g === '15min') return '15min';
+  if (g === '30m' || g === '30min') return '30min';
+  if (g === '1h' || g === '60min') return '1h';
+  if (g === '1d' || g === '1day' || g === 'daily') return '1day';
+  return '1min';
+}
+
 // Massive.com (Polygon.io) ticker conversion (e.g. 'EUR/USD' → 'C:EURUSD', 'XAU/USD' → 'C:XAUUSD')
 function toMassiveTicker(instrument: string): string {
   const clean = instrument.replace(/[/_]/g, '').toUpperCase();
@@ -141,14 +153,95 @@ export class PriceFeed {
     return null;
   }
 
+  /**
+   * Fetches real-time live price quote from Twelve Data API.
+   * Caches quotes for 5 seconds to stay within free API rate limits.
+   */
+  public static async fetchTwelveDataQuote(instrument: string): Promise<Quote | null> {
+    const apiKey = config.TWELVE_DATA_API_KEY || process.env.TWELVE_DATA_API_KEY;
+    if (!apiKey) return null;
+
+    const formatted = instrument.includes('/') ? instrument : instrument.replace('_', '/');
+    const cacheKey = `TD_QUOTE_${formatted}`;
+    const cached = this.quoteCache[cacheKey];
+    const now = Date.now();
+
+    if (cached && now - cached.timestamp < 5000) {
+      return cached.quote;
+    }
+
+    try {
+      const response = await axios.get(`${this.tdBaseURL}/price`, {
+        params: {
+          symbol: formatted,
+          apikey: apiKey,
+        },
+        timeout: 5000,
+      });
+
+      if (response.data && response.data.price) {
+        const price = parseFloat(response.data.price);
+        if (!isNaN(price) && price > 0) {
+          const spread = SPREADS[formatted] || (formatted.includes('JPY') ? 0.015 : 0.00015);
+          const isSpecial = formatted.includes('JPY') || formatted.includes('XAU');
+          const bid = parseFloat((price - spread / 2).toFixed(isSpecial ? 3 : 5));
+          const ask = parseFloat((price + spread / 2).toFixed(isSpecial ? 3 : 5));
+
+          simPrices[formatted] = price;
+          BASE_PRICES[formatted] = price;
+
+          const quote: Quote = {
+            instrument: formatted,
+            time: new Date().toISOString(),
+            bid,
+            ask,
+          };
+
+          this.quoteCache[cacheKey] = { quote, timestamp: now };
+          logger.info(`[TwelveData] Live ${formatted} quote fetched: Bid ${bid} / Ask ${ask} (Price: $${price.toFixed(isSpecial ? 2 : 4)})`);
+          return quote;
+        }
+      }
+    } catch (err: any) {
+      logger.debug(`Twelve Data price fetch failed for ${formatted}: ${err.message}`);
+    }
+
+    return null;
+  }
+
+  /**
+   * Checks if cached SQLite candles are fresh enough for the given granularity.
+   */
+  public static isCandleCacheFresh(candles: Candle[], granularity: string): boolean {
+    if (!candles || candles.length === 0) return false;
+    const latest = candles[candles.length - 1];
+    if (!latest || !latest.time) return false;
+    const candleTime = new Date(latest.time).getTime();
+    if (isNaN(candleTime)) return false;
+    const ageMs = Date.now() - candleTime;
+
+    const g = granularity.toLowerCase();
+    if (g === '1m' || g === '1min') return ageMs < 5 * 60 * 1000; // 5 mins
+    if (g === '5m' || g === '5min') return ageMs < 15 * 60 * 1000; // 15 mins
+    if (g === '15m' || g === '15min') return ageMs < 45 * 60 * 1000; // 45 mins
+    if (g === '1h' || g === '60min') return ageMs < 2.5 * 60 * 60 * 1000; // 2.5 hours
+    if (g === '1day' || g === '1d' || g === 'daily') return ageMs < 36 * 60 * 60 * 1000; // 36 hours
+    return ageMs < 10 * 60 * 1000;
+  }
+
   public static getLatestQuote(instrument: string): Quote {
     const formatted = instrument.includes('/') ? instrument : instrument.replace('_', '/');
 
     if (formatted === 'XAU/USD') {
       const cachedGold = this.quoteCache['XAU/USD_GOLDAPI'];
-      if (cachedGold && Date.now() - cachedGold.timestamp < 10000) {
+      if (cachedGold && Date.now() - cachedGold.timestamp < 15000) {
         return cachedGold.quote;
       }
+    }
+
+    const cachedTd = this.quoteCache[`TD_QUOTE_${formatted}`];
+    if (cachedTd && Date.now() - cachedTd.timestamp < 15000) {
+      return cachedTd.quote;
     }
 
     const basePrice = simPrices[formatted] || simPrices['EUR/USD'] || 1.0850;
@@ -186,9 +279,9 @@ export class PriceFeed {
       return cached.candles;
     }
 
-    // --- FAST PRIMARY: Local DB Cache (17,000+ historical candles) + Live MT5 tick update ---
+    // --- FAST PRIMARY: Local DB Cache (if fresh and sufficient count) + Live tick update ---
     const dbCached = this.getCachedCandles(instrument, count, granularity);
-    if (dbCached.length >= 20) {
+    if (dbCached.length >= count && this.isCandleCacheFresh(dbCached, granularity)) {
       const quote = this.getLatestQuote(instrument);
       if (quote && dbCached.length > 0) {
         const lastIndex = dbCached.length - 1;
@@ -205,7 +298,42 @@ export class PriceFeed {
       return dbCached;
     }
 
-    // --- SECONDARY: Massive.com (Polygon.io) ---
+    // --- LIVE FEED 1: Twelve Data (Fast, real-time 1m/5m/15m/1h/1day candles) ---
+    try {
+      const tdInterval = toTDInterval(granularity);
+      const response = await axios.get(`${this.tdBaseURL}/time_series`, {
+        params: {
+          symbol: instrument,
+          interval: tdInterval,
+          outputsize: Math.min(count, 500),
+          timezone: 'UTC',
+          apikey: config.TWELVE_DATA_API_KEY,
+        },
+        timeout: 8000,
+      });
+
+      if (response.data && response.data.values && response.data.values.length > 0) {
+        const candles: Candle[] = response.data.values.map((v: any) => ({
+          time: new Date(v.datetime + ' UTC').toISOString(),
+          instrument,
+          granularity,
+          open: parseFloat(v.open),
+          high: parseFloat(v.high),
+          low: parseFloat(v.low),
+          close: parseFloat(v.close),
+          volume: parseInt(v.volume, 10) || 0,
+        })).reverse();
+
+        this.saveCandlesToDb(candles);
+        this.candleCache[cacheKey] = { candles, timestamp: now };
+        logger.info(`[Twelve Data] Successfully fetched & saved ${candles.length} ${granularity} candles for ${instrument}`);
+        return candles;
+      }
+    } catch (tdError: any) {
+      logger.debug(`Twelve Data candle fetch error: ${tdError.message}. Trying Massive/AlphaVantage...`);
+    }
+
+    // --- LIVE FEED 2: Massive.com (Polygon.io) ---
     try {
       await this.throttleMassiveCall();
       const ticker = toMassiveTicker(instrument);
@@ -241,14 +369,12 @@ export class PriceFeed {
         this.candleCache[cacheKey] = { candles, timestamp: now };
         logger.info(`Massive.com: successfully fetched ${candles.length} ${granularity} candles for ${instrument}`);
         return candles;
-      } else {
-        throw new Error('Massive.com returned empty results');
       }
     } catch (massiveErr: any) {
-      logger.warn(`Massive.com candle fetch failed for ${instrument}: ${massiveErr.message}. Trying fallbacks...`);
+      logger.warn(`Massive.com candle fetch failed for ${instrument}: ${massiveErr.message}. Trying Alpha Vantage...`);
     }
 
-    // --- SECONDARY: Alpha Vantage (daily candles only) ---
+    // --- LIVE FEED 3: Alpha Vantage (daily candles only) ---
     const avInterval = toAVInterval(granularity);
     if (avInterval === 'daily') {
       try {
@@ -289,42 +415,25 @@ export class PriceFeed {
       }
     }
 
-    // --- TERTIARY FALLBACK: Twelve Data ---
-    try {
-      const response = await axios.get(`${this.tdBaseURL}/time_series`, {
-        params: {
-          symbol: instrument,
-          interval: granularity,
-          outputsize: count,
-          apikey: config.TWELVE_DATA_API_KEY,
-        },
-        timeout: 8000,
-      });
-
-      if (response.data && response.data.values) {
-        const candles: Candle[] = response.data.values.map((v: any) => ({
-          time: new Date(v.datetime + ' UTC').toISOString(),
-          instrument, granularity,
-          open: parseFloat(v.open), high: parseFloat(v.high),
-          low: parseFloat(v.low), close: parseFloat(v.close),
-          volume: parseInt(v.volume, 10) || 0,
-        })).reverse();
-
-        this.saveCandlesToDb(candles);
-        this.candleCache[cacheKey] = { candles, timestamp: now };
-        return candles;
-      }
-    } catch (tdError: any) {
-      logger.error(`Twelve Data candle fetch failed: ${tdError.message}`);
-    }
-
-    // --- QUATERNARY: cached / simulated ---
+    // --- QUATERNARY: cached DB candles (with live quote attached) ---
     if (cached) { cached.timestamp = now; return cached.candles; }
-    const fallbackDb = this.getCachedCandles(instrument, count, granularity);
-    if (fallbackDb.length > 0) {
-      this.candleCache[cacheKey] = { candles: fallbackDb, timestamp: now };
-      return fallbackDb;
+    if (dbCached.length > 0) {
+      const quote = this.getLatestQuote(instrument);
+      if (quote) {
+        const lastIndex = dbCached.length - 1;
+        const currentMid = (quote.bid + quote.ask) / 2;
+        dbCached[lastIndex] = {
+          ...dbCached[lastIndex],
+          close: currentMid,
+          high: Math.max(dbCached[lastIndex].high, currentMid),
+          low: Math.min(dbCached[lastIndex].low, currentMid),
+          time: new Date().toISOString(),
+        };
+      }
+      this.candleCache[cacheKey] = { candles: dbCached, timestamp: now };
+      return dbCached;
     }
+
     const simCandles = this.generateSimulatedCandles(instrument, count, granularity);
     this.candleCache[cacheKey] = { candles: simCandles, timestamp: now };
     return simCandles;
@@ -332,11 +441,11 @@ export class PriceFeed {
 
   /**
    * Fetches latest bid/ask quotes.
-   * Primary: Redis cache (populated by WebSocketManager).
+   * Primary: Redis / in-memory cache (populated by WebSocketManager).
+   * Secondary: Live GoldAPI.io (XAU/USD) & Twelve Data REST quote.
    */
   public static async fetchLatestQuotes(instruments: string[]): Promise<Quote[]> {
     const quotes: Quote[] = [];
-    // Ensure redis is imported at the top of priceFeed.ts
     const { redis } = await import('../db/redis');
 
     for (const inst of instruments) {
@@ -357,19 +466,37 @@ export class PriceFeed {
             continue;
           }
         } catch {
-          // Fall back to redis / simulation feed if MT5 bridge is offline
+          // Fall back to live feed if MT5 bridge is offline
         }
       }
 
-      // 1. Try to get from Redis (ultra-fast)
+      // 1. Try to get from Redis / In-Memory cache (ultra-fast)
       const cachedQuote = await redis.getCache<Quote>(`quote:${normInst}`);
       if (cachedQuote) {
         quotes.push(cachedQuote);
         continue;
       }
 
-      // 2. Fallback if Redis is empty (e.g. WebSocket just disconnected)
-      // We will pull the latest close price from the local db candle cache
+      // 2. Live API Quote Fetch
+      // A. For XAU/USD (Gold), fetch real-time live quote from GoldAPI.io
+      if (normInst === 'XAU/USD') {
+        const goldQuote = await this.fetchGoldApiQuote();
+        if (goldQuote) {
+          quotes.push(goldQuote);
+          await redis.setCache(`quote:${normInst}`, goldQuote, 10);
+          continue;
+        }
+      }
+
+      // B. Fetch real-time live price from Twelve Data
+      const tdQuote = await this.fetchTwelveDataQuote(normInst);
+      if (tdQuote) {
+        quotes.push(tdQuote);
+        await redis.setCache(`quote:${normInst}`, tdQuote, 10);
+        continue;
+      }
+
+      // 3. Fallback if offline: pull from local db or simPrices
       const fallbackDb = this.getCachedCandles(normInst, 1, '1min');
       let basePrice = fallbackDb.length > 0 ? fallbackDb[0].close : (simPrices[normInst] || BASE_PRICES[normInst] || 1.0850);
       

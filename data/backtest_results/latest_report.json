@@ -4,39 +4,39 @@
   "lossesCount": 1,
   "breakEvenCount": 0,
   "winRate": 75,
-  "totalPnL": 4.06,
-  "netReturnPct": 8.1,
-  "profitFactor": 29.28,
-  "maxDrawdown": 0.2,
+  "totalPnL": 4.93,
+  "netReturnPct": 4.9,
+  "profitFactor": 36,
+  "maxDrawdown": 0.1,
   "maxDrawdownUsd": 0.09,
-  "sharpeRatio": 1.31,
-  "sortinoRatio": 7.07,
-  "expectancyUsd": 0.64,
-  "avgWinUsd": 0.88,
+  "sharpeRatio": 1.35,
+  "sortinoRatio": 8.75,
+  "expectancyUsd": 0.77,
+  "avgWinUsd": 1.06,
   "avgLossUsd": 0.09,
-  "winLossRatio": 9.78,
-  "largestWinUsd": 0.88,
+  "winLossRatio": 11.78,
+  "largestWinUsd": 1.06,
   "largestLossUsd": -0.09,
   "maxConsecutiveWins": 2,
   "maxConsecutiveLosses": 1,
   "avgHoldingTimeMinutes": 14,
   "totalCommissionsPaid": 0.32,
-  "totalSlippagePaid": 0.19,
+  "totalSlippagePaid": 0.24,
   "totalSwapPaid": 0,
   "profitableDays": 1,
   "totalTradingDays": 1,
   "dailyWinRate": 100,
-  "avgDailyProfitUsd": 4.06,
+  "avgDailyProfitUsd": 4.93,
   "dailyTargetHitCount": 0,
   "regimeBreakdown": {
     "TRENDING": {
       "trades": 1,
-      "pnl": 0.87,
+      "pnl": 1.06,
       "winRate": 100
     },
     "RANGING": {
       "trades": 3,
-      "pnl": 1.67,
+      "pnl": 2.02,
       "winRate": 66.7
     },
     "HIGH_VOLATILITY": {
@@ -48,282 +48,282 @@
   "equityCurve": [
     {
       "time": "2026-10-07T15:08:10.405Z",
-      "equity": 50,
+      "equity": 100,
       "drawdown": 0
     },
     {
       "time": "2026-10-07T15:38:10.405Z",
-      "equity": 50,
+      "equity": 100,
       "drawdown": 0
     },
     {
       "time": "2026-10-07T15:43:10.405Z",
-      "equity": 50,
+      "equity": 100,
       "drawdown": 0
     },
     {
       "time": "2026-10-07T15:48:10.405Z",
-      "equity": 50,
+      "equity": 100,
       "drawdown": 0
     },
     {
       "time": "2026-10-07T15:53:10.405Z",
-      "equity": 50,
+      "equity": 100,
       "drawdown": 0
     },
     {
       "time": "2026-10-07T15:58:10.405Z",
-      "equity": 50,
+      "equity": 100,
       "drawdown": 0
     },
     {
       "time": "2026-10-07T16:03:10.405Z",
-      "equity": 50,
+      "equity": 100,
       "drawdown": 0
     },
     {
       "time": "2026-10-07T16:08:10.405Z",
-      "equity": 50,
+      "equity": 100,
       "drawdown": 0
     },
     {
       "time": "2026-10-07T16:13:10.405Z",
-      "equity": 50,
+      "equity": 100,
       "drawdown": 0
     },
     {
       "time": "2026-10-07T16:18:10.405Z",
-      "equity": 50,
+      "equity": 100,
       "drawdown": 0
     },
     {
       "time": "2026-10-07T16:23:10.405Z",
-      "equity": 50,
+      "equity": 100,
       "drawdown": 0
     },
     {
       "time": "2026-10-07T16:28:10.405Z",
-      "equity": 50,
+      "equity": 100,
       "drawdown": 0
     },
     {
       "time": "2026-10-07T16:33:10.405Z",
-      "equity": 50,
+      "equity": 100,
       "drawdown": 0
     },
     {
       "time": "2026-10-07T16:38:10.405Z",
-      "equity": 50,
+      "equity": 100,
       "drawdown": 0
     },
     {
       "time": "2026-10-07T16:43:10.405Z",
-      "equity": 51.26,
+      "equity": 101.52,
       "drawdown": 0
     },
     {
       "time": "2026-10-07T16:48:10.405Z",
-      "equity": 51.26,
+      "equity": 101.52,
       "drawdown": 0
     },
     {
       "time": "2026-10-07T16:53:10.405Z",
-      "equity": 51.26,
+      "equity": 101.52,
       "drawdown": 0
     },
     {
       "time": "2026-10-07T16:58:10.405Z",
-      "equity": 51.26,
+      "equity": 101.52,
       "drawdown": 0
     },
     {
       "time": "2026-10-07T17:03:10.405Z",
-      "equity": 51.26,
+      "equity": 101.52,
       "drawdown": 0
     },
     {
       "time": "2026-10-07T17:08:10.405Z",
-      "equity": 51.26,
+      "equity": 101.52,
       "drawdown": 0
     },
     {
       "time": "2026-10-07T17:13:10.405Z",
-      "equity": 51.26,
+      "equity": 101.52,
       "drawdown": 0
     },
     {
       "time": "2026-10-07T17:18:10.405Z",
-      "equity": 51.26,
+      "equity": 101.52,
       "drawdown": 0
     },
     {
       "time": "2026-10-07T17:23:10.405Z",
-      "equity": 51.26,
+      "equity": 101.52,
       "drawdown": 0
     },
     {
       "time": "2026-10-07T17:28:10.405Z",
-      "equity": 51.26,
+      "equity": 101.52,
       "drawdown": 0
     },
     {
       "time": "2026-10-07T17:33:10.405Z",
-      "equity": 51.26,
+      "equity": 101.52,
       "drawdown": 0
     },
     {
       "time": "2026-10-07T17:38:10.405Z",
-      "equity": 51.26,
+      "equity": 101.52,
       "drawdown": 0
     },
     {
       "time": "2026-10-07T17:43:10.405Z",
-      "equity": 51.26,
+      "equity": 101.52,
       "drawdown": 0
     },
     {
       "time": "2026-10-07T17:48:10.405Z",
-      "equity": 51.26,
+      "equity": 101.52,
       "drawdown": 0
     },
     {
       "time": "2026-10-07T17:53:10.405Z",
-      "equity": 51.26,
+      "equity": 101.52,
       "drawdown": 0
     },
     {
       "time": "2026-10-07T17:58:10.405Z",
-      "equity": 51.55,
-      "drawdown": 0.2
+      "equity": 101.89,
+      "drawdown": 0.1
     },
     {
       "time": "2026-10-07T18:03:10.405Z",
-      "equity": 51.55,
-      "drawdown": 0.2
+      "equity": 101.89,
+      "drawdown": 0.1
     },
     {
       "time": "2026-10-07T18:08:10.405Z",
-      "equity": 51.55,
-      "drawdown": 0.2
+      "equity": 101.89,
+      "drawdown": 0.1
     },
     {
       "time": "2026-10-07T18:13:10.405Z",
-      "equity": 51.93,
+      "equity": 102.36,
       "drawdown": 0
     },
     {
       "time": "2026-10-07T18:18:10.405Z",
-      "equity": 52.81,
+      "equity": 103.41,
       "drawdown": 0
     },
     {
       "time": "2026-10-07T18:23:10.405Z",
-      "equity": 52.81,
+      "equity": 103.41,
       "drawdown": 0
     },
     {
       "time": "2026-10-07T18:28:10.405Z",
-      "equity": 52.81,
+      "equity": 103.41,
       "drawdown": 0
     },
     {
       "time": "2026-10-07T18:33:10.405Z",
-      "equity": 52.81,
+      "equity": 103.41,
       "drawdown": 0
     },
     {
       "time": "2026-10-07T18:38:10.405Z",
-      "equity": 52.81,
+      "equity": 103.41,
       "drawdown": 0
     },
     {
       "time": "2026-10-07T18:43:10.405Z",
-      "equity": 52.81,
+      "equity": 103.41,
       "drawdown": 0
     },
     {
       "time": "2026-10-07T18:48:10.405Z",
-      "equity": 52.81,
+      "equity": 103.41,
       "drawdown": 0
     },
     {
       "time": "2026-10-07T18:53:10.405Z",
-      "equity": 52.81,
+      "equity": 103.41,
       "drawdown": 0
     },
     {
       "time": "2026-10-07T18:58:10.405Z",
-      "equity": 52.81,
+      "equity": 103.41,
       "drawdown": 0
     },
     {
       "time": "2026-10-07T19:03:10.405Z",
-      "equity": 52.81,
+      "equity": 103.41,
       "drawdown": 0
     },
     {
       "time": "2026-10-07T19:08:10.405Z",
-      "equity": 52.81,
+      "equity": 103.41,
       "drawdown": 0
     },
     {
       "time": "2026-10-07T19:13:10.405Z",
-      "equity": 52.81,
+      "equity": 103.41,
       "drawdown": 0
     },
     {
       "time": "2026-10-07T19:18:10.405Z",
-      "equity": 52.81,
+      "equity": 103.41,
       "drawdown": 0
     },
     {
       "time": "2026-10-07T19:23:10.405Z",
-      "equity": 52.81,
+      "equity": 103.41,
       "drawdown": 0
     },
     {
       "time": "2026-10-07T19:28:10.405Z",
-      "equity": 52.81,
+      "equity": 103.41,
       "drawdown": 0
     },
     {
       "time": "2026-10-07T19:33:10.405Z",
-      "equity": 52.81,
+      "equity": 103.41,
       "drawdown": 0
     },
     {
       "time": "2026-10-07T19:38:10.405Z",
-      "equity": 52.81,
+      "equity": 103.41,
       "drawdown": 0
     },
     {
       "time": "2026-10-07T19:43:10.405Z",
-      "equity": 52.81,
+      "equity": 103.41,
       "drawdown": 0
     },
     {
       "time": "2026-10-07T19:48:10.405Z",
-      "equity": 53.19,
+      "equity": 103.87,
       "drawdown": 0
     },
     {
       "time": "2026-10-07T19:53:10.405Z",
-      "equity": 53.19,
+      "equity": 103.87,
       "drawdown": 0
     },
     {
       "time": "2026-10-07T19:58:10.405Z",
-      "equity": 54.06,
+      "equity": 104.93,
       "drawdown": 0
     },
     {
       "time": "2026-10-07T20:03:10.405Z",
-      "equity": 54.06,
+      "equity": 104.93,
       "drawdown": 0
     },
     {
       "time": "2026-10-07T20:07:10.405Z",
-      "equity": 54.06,
+      "equity": 104.93,
       "drawdown": 0
     }
   ],
@@ -338,8 +338,8 @@
     "recommendedTradingHours": "London Session (07:00-11:00 UTC) & NY Open (12:00-16:00 UTC)",
     "keyStrengths": [
       "High win probability (75% win rate) provides psychological comfort.",
-      "Healthy Profit Factor (29.28) indicates reward far outstrips risk.",
-      "Low max drawdown (0.17688679245282282%) shields your $50 account from margin calls.",
+      "Healthy Profit Factor (36) indicates reward far outstrips risk.",
+      "Low max drawdown (0.08707870727705942%) shields your $50 account from margin calls.",
       "Built-in Auto Break-Even (+2 pips) locks profits immediately once price surges."
     ],
     "riskWarnings": [
@@ -357,56 +357,56 @@
   },
   "tradeHistory": [
     {
-      "id": "1ee962a6-debe-4588-a8b6-0f5daa255d45",
+      "id": "c4224155-e134-4f52-b7b0-edcb72ca92f7",
       "action": "SELL",
       "entryTime": "2026-10-07T16:34:10.405Z",
       "exitTime": "2026-10-07T16:43:10.405Z",
       "entryPrice": 1.08748,
       "exitPrice": 1.08554,
       "lots": 0.01,
-      "pnl": 0.8800000000000319,
-      "pips": 18.4,
+      "pnl": 1.057999999999999,
+      "pips": 18.3,
       "holdingMinutes": 9,
       "reason": "Take Profit Hit",
       "regime": "RANGING"
     },
     {
-      "id": "b82b3cc2-15ab-4b12-9bdb-54f75f26885f",
+      "id": "2b56e3f4-7320-45a5-9c44-e77cbae797b7",
       "action": "BUY",
       "entryTime": "2026-10-07T17:52:10.405Z",
       "exitTime": "2026-10-07T17:55:10.405Z",
       "entryPrice": 1.08205,
-      "exitPrice": 1.0821,
+      "exitPrice": 1.08211,
       "lots": 0.01,
-      "pnl": -0.0899999999999945,
-      "pips": -1,
+      "pnl": -0.08800000000004801,
+      "pips": -0.8,
       "holdingMinutes": 3,
       "reason": "Break-Even SL Hit",
       "regime": "RANGING"
     },
     {
-      "id": "b5b2df61-3381-4c32-8de1-a0109d885761",
+      "id": "54c93351-609e-48df-a447-704c7417fa7d",
       "action": "SELL",
       "entryTime": "2026-10-07T18:04:10.405Z",
       "exitTime": "2026-10-07T18:15:10.405Z",
       "entryPrice": 1.08182,
       "exitPrice": 1.07988,
       "lots": 0.01,
-      "pnl": 0.8800000000000319,
-      "pips": 18.4,
+      "pnl": 1.0520000000000929,
+      "pips": 18.2,
       "holdingMinutes": 11,
       "reason": "Take Profit Hit",
       "regime": "RANGING"
     },
     {
-      "id": "311cb836-91bf-43a4-a769-0a21a481897a",
+      "id": "e8dc0b30-a954-4cf6-93f4-30208c7ff57d",
       "action": "BUY",
       "entryTime": "2026-10-07T19:24:10.405Z",
       "exitTime": "2026-10-07T19:55:10.405Z",
       "entryPrice": 1.07563,
       "exitPrice": 1.07757,
       "lots": 0.01,
-      "pnl": 0.8749999999999991,
+      "pnl": 1.057999999999999,
       "pips": 18.3,
       "holdingMinutes": 31,
       "reason": "Take Profit Hit",

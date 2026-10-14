@@ -35,14 +35,14 @@ export class Scalper1mStrategy implements Strategy {
       return { signal: 'NONE', confidence: 0, reason: `Scalping requires 1m candles (got ${candle.granularity})`, sl: 0, tp: 0 };
     }
 
-    // 2. Session Gate: Active ONLY during London and New York opening hours
+    // 2. Session Gate: Active during London (07:00-12:00 UTC) and New York (12:00-21:00 UTC)
     const candleDate = new Date(candle.time);
     const utcHours = candleDate.getUTCHours();
-    const isLondonOpen = utcHours >= 7 && utcHours < 11;
-    const isNyOpen = utcHours >= 12 && utcHours < 16;
+    const isLondonOpen = utcHours >= 7 && utcHours < 12;
+    const isNyOpen = utcHours >= 12 && utcHours < 21;
 
     if (!isLondonOpen && !isNyOpen) {
-      return { signal: 'NONE', confidence: 0, reason: `Outside London (07:00-11:00 UTC) and NY (12:00-16:00 UTC) open hours (${utcHours}:00 UTC)`, sl: 0, tp: 0 };
+      return { signal: 'NONE', confidence: 0, reason: `Outside London (07:00-12:00 UTC) and NY (12:00-21:00 UTC) open hours (${utcHours}:00 UTC)`, sl: 0, tp: 0 };
     }
 
     // 3. Time-Stop Exit Check on Active Position

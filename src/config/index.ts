@@ -31,7 +31,7 @@ const envSchema = z.object({
   ML_MIN_CONFIDENCE: z.string().transform((val) => parseFloat(val)).default('0.62'),
   CORRELATION_GROUPS: z.string().transform((val) => val.split('|').map(g => g.trim())).default('USD:EUR/USD,GBP/USD,USD/JPY,AUD/USD,USD/CHF'),
   ML_SERVICE_URL: z.string().default('http://127.0.0.1:8000'),
-  ENABLED_STRATEGIES: z.string().transform((val) => val.split(',').map((s) => s.trim())).default('ma_crossover,rsi_reversion,bollinger_bands,loss_recovery,smc_liquidity,ml_signal,volatility_arbitrage,grid_overlay,asian_killzone'),
+  ENABLED_STRATEGIES: z.string().transform((val) => val.split(',').map((s) => s.trim())).default('gold_alpha,scalping_1m,power_breakout,smc_liquidity,ma_crossover,rsi_reversion,bollinger_bands,loss_recovery,grid_overlay,asian_killzone'),
   STRATEGY_MONTHLY_LOSS_LIMIT_PCT: z.string().transform((val) => parseFloat(val)).default('-8.0'),
   TELEGRAM_BOT_TOKEN: z.string().optional(),
   TELEGRAM_CHAT_ID: z.string().optional(),
