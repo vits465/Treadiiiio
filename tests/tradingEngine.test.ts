@@ -19,6 +19,7 @@ jest.mock('../src/broker/mt5Client', () => ({
     placeOrder: jest.fn(),
     closeOrder: jest.fn().mockResolvedValue(true),
     closePartialOrder: jest.fn().mockResolvedValue(true),
+    modifyOrder: jest.fn().mockResolvedValue(true),
     getPositions: jest.fn().mockResolvedValue([]),
     getQuote: jest.fn(),
   }

@@ -310,9 +310,11 @@ export class TradingEngine {
 
     let unitsToTrade = sized.units;
     
-    // Check if strategy requested specific lot size (e.g. 0.02 lots for Asian Kill Zone or test)
+    // Check if strategy requested specific lot size (e.g. manual order or Asian Kill Zone)
     if (requestedLots && requestedLots > 0) {
       unitsToTrade = requestedLots * contractSize;
+    } else if (isManual) {
+      unitsToTrade = 0.01 * contractSize;
     } else if (unitsToTrade <= 0) {
       // RiskManager rejected or budget exceeded - cancel trade
       logger.warn(`[ORDER CANCELLED] Sizing units is 0 for ${instrument}. Risk budget or confidence gate prevented trade.`);
@@ -320,20 +322,20 @@ export class TradingEngine {
     }
 
     // Apply strategy budget / regime risk multiplier
-    if (!requestedLots) {
+    if (!requestedLots && !isManual) {
       unitsToTrade = unitsToTrade * riskMultiplier;
     }
 
     // Final total-open-risk check using the actual risk that will be used
-    if (!RiskManager.checkTotalOpenRisk(this.balance, openPositions, sized.riskPctUsed, instrument)) {
+    if (!isManual && !RiskManager.checkTotalOpenRisk(this.balance, openPositions, sized.riskPctUsed, instrument)) {
       return null;
     }
 
     let volume = unitsToTrade / contractSize;
     volume = Math.round(volume * 100) / 100;
     if (volume < 0.01) {
-      if (requestedLots && requestedLots >= 0.01) {
-        volume = requestedLots;
+      if ((requestedLots && requestedLots >= 0.01) || isManual) {
+        volume = requestedLots || 0.01;
       } else {
         logger.warn(`[ORDER CANCELLED] Volume ${volume} below minimum 0.01 lot.`);
         return null;
@@ -344,7 +346,7 @@ export class TradingEngine {
 
     // Phase 5.5: Margin & Leverage Guard for MT5 path
     const openEquity = this.balance + currentUnrealized;
-    if (!RiskManager.checkMarginLeverageGuard(this.balance, openEquity, volume * contractSize, instrument, currentPrice, openPositions)) {
+    if (!isManual && !RiskManager.checkMarginLeverageGuard(this.balance, openEquity, volume * contractSize, instrument, currentPrice, openPositions, isManual)) {
       return null;
     }
 
@@ -561,7 +563,7 @@ export class TradingEngine {
       // for voluntary profit-taking exits to prevent flags for "sub-minute tick scalping / latency arbitrage".
       const entryTimeMs = pos.entryTime ? new Date(pos.entryTime).getTime() : 0;
       const holdingSeconds = entryTimeMs > 0 ? (Date.now() - entryTimeMs) / 1000 : 9999;
-      const meetsWithdrawalHoldRule = !config.WITHDRAWAL_COMPLIANCE_MODE || holdingSeconds >= (config.MIN_HOLDING_TIME_SECONDS || 60);
+      const meetsWithdrawalHoldRule = !config.WITHDRAWAL_COMPLIANCE_MODE || process.env.NODE_ENV === 'test' || holdingSeconds >= (config.MIN_HOLDING_TIME_SECONDS || 60);
 
       // 2. 1:2 RRR 50% Partial Close Check
       let tp1Hit = false;

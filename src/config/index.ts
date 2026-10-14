@@ -27,7 +27,7 @@ const envSchema = z.object({
   RISK_MAX_POSITION_SIZE_PCT: z.string().transform((val) => parseFloat(val)).default('2'),
   RISK_MAX_CONCURRENT_POSITIONS: z.string().transform((val) => parseInt(val, 10)).default('5'),
   RISK_DAILY_LOSS_LIMIT_PCT: z.string().transform((val) => parseFloat(val)).default('5'),
-  RISK_MAX_LEVERAGE: z.string().transform((val) => parseFloat(val)).default('20.0'),
+  RISK_MAX_LEVERAGE: z.string().transform((val) => parseFloat(val)).default('100.0'),
   ML_MIN_CONFIDENCE: z.string().transform((val) => parseFloat(val)).default('0.62'),
   CORRELATION_GROUPS: z.string().transform((val) => val.split('|').map(g => g.trim())).default('USD:EUR/USD,GBP/USD,USD/JPY,AUD/USD,USD/CHF'),
   ML_SERVICE_URL: z.string().default('http://127.0.0.1:8000'),

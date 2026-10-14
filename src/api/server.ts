@@ -17,6 +17,7 @@ import axios from 'axios';
 import { StrategyRegistry } from '../strategy/registry';
 import { AuditLogger } from '../utils/auditLogger';
 import { runBacktestEngine } from '../analytics/backtestEngine';
+import { SymbolNormalizer } from '../utils/symbolNormalizer';
 
 const app = express();
 // Trust one proxy hop (localtunnel/Vercel reverse proxy) so express-rate-limit
@@ -828,16 +829,15 @@ app.post('/api/lock-breakeven', handleLockBreakeven);
 
 // Manual Trading Endpoints
 
-app.post('/api/trade/execute', tradeRateLimiter, async (req, res) => {
+const handleExecuteTrade = async (req: express.Request, res: express.Response) => {
   try {
-    const { instrument, action, stopLoss, takeProfit } = req.body;
+    const { instrument, action, stopLoss, takeProfit, lots } = req.body;
     const targetPair = instrument || 'XAU/USD';
     const quote = PriceFeed.getLatestQuote(targetPair);
     if (!quote) return res.status(400).json({ error: `No live quote available for ${targetPair}.` });
 
-    const isXau = targetPair.includes('XAU');
-    const isJpy = targetPair.includes('JPY');
-    const pipSize = (isXau || isJpy) ? 0.01 : 0.0001;
+    const isXau = SymbolNormalizer.isGold(targetPair);
+    const pipSize = SymbolNormalizer.getPipSize(targetPair);
     const entryPrice = action === 'BUY' ? quote.ask : quote.bid;
 
     let slPips: number | undefined = undefined;
@@ -858,9 +858,20 @@ app.post('/api/trade/execute', tradeRateLimiter, async (req, res) => {
       }
     }
 
+    const requestedLots = typeof lots === 'number' && lots > 0 ? lots : 0.01;
+
     const orderId = await TradingEngine.executeOrder(
-      targetPair, action, 'manual', quote, slPips, tpPips,
-      undefined, undefined, 0.85
+      targetPair,
+      action,
+      'manual',
+      quote,
+      slPips,
+      tpPips,
+      undefined,
+      undefined,
+      0.85,
+      undefined,
+      requestedLots
     );
     if (orderId) {
       res.json({ success: true, orderId });
@@ -870,9 +881,12 @@ app.post('/api/trade/execute', tradeRateLimiter, async (req, res) => {
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
-});
+};
 
-app.post('/api/trade/close', async (req, res) => {
+app.post('/api/trade/execute', tradeRateLimiter, handleExecuteTrade);
+app.post('/api/bot/trade/execute', tradeRateLimiter, handleExecuteTrade);
+
+const handleCloseTrade = async (req: express.Request, res: express.Response) => {
   try {
     const { positionId } = req.body;
     const pos = TradingEngine.getOpenPositions().find(p => p.id === positionId);
@@ -886,7 +900,10 @@ app.post('/api/trade/close', async (req, res) => {
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
-});
+};
+
+app.post('/api/trade/close', handleCloseTrade);
+app.post('/api/bot/trade/close', handleCloseTrade);
 
 // Config Endpoints
 /** Mask a Telegram bot token: show ••••••••XXXX (last 4 chars). */

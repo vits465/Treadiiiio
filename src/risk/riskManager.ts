@@ -237,9 +237,7 @@ export class RiskManager {
 
     // Use Dynamic Kelly Criterion for Base Risk Cap (kelly is returned as a percentage e.g. 1.5%)
     const kellyPct = calculateKellyRiskPct();
-    // Micro-account override: hard cap at 1% for accounts under $200 to prevent catastrophic sizing
-    const microAccountCap = accountEquity < 200 ? 1.0 : config.RISK_PER_TRADE_CAP_PCT;
-    const perTradeCapPct = Math.min(kellyPct, microAccountCap, config.RISK_MAX_POSITION_SIZE_PCT);
+    const perTradeCapPct = Math.min(kellyPct, config.RISK_PER_TRADE_CAP_PCT, config.RISK_MAX_POSITION_SIZE_PCT);
 
     const effectiveCap = perTradeCapPct;
     
@@ -802,9 +800,11 @@ export class RiskManager {
     proposedUnits: number,
     instrument: string,
     currentPrice: number,
-    openPositions: PositionInfo[]
+    openPositions: PositionInfo[],
+    isManual: boolean = false
   ): boolean {
-    const maxLeverage = config.RISK_MAX_LEVERAGE || 20;
+    if (isManual) return true;
+    const maxLeverage = Math.max(config.RISK_MAX_LEVERAGE || 20, 100);
     const effectiveEquity = Math.max(10, openEquity || accountBalance);
 
     let currentNotional = 0;
@@ -875,15 +875,16 @@ export class RiskManager {
     const slPriceDistance = slPips * pipSize;
     const slDistanceUsd = isJpy ? (slPriceDistance / (currentPrice || 150.0)) : slPriceDistance;
 
-    // Small-account rule: cancel instead of rounding up when min lot exceeds budget
+    // Small-account rule: allow minimum broker lot (0.01) if dollar risk is reasonable (<= $3.50 or <= 3.5% of balance)
     const minLotUnits = 0.01 * contractSize;
     const minLotDollarRisk = minLotUnits * slDistanceUsd;
     const maxAllowedRiskUsd = currentBalance * (config.RISK_MAX_POSITION_SIZE_PCT / 100);
+    const microAccountRiskBudget = Math.max(maxAllowedRiskUsd, 3.50);
 
-    if (currentBalance < 200 && minLotDollarRisk > maxAllowedRiskUsd * 1.05) {
+    if (currentBalance < 200 && minLotDollarRisk > microAccountRiskBudget * 1.05) {
       logger.info(
         `[SIZING CANCELLED - MIN LOT EXCEEDS BUDGET] ${instrument} | Balance: $${currentBalance.toFixed(2)} | ` +
-        `Max Risk: $${maxAllowedRiskUsd.toFixed(2)} | Min 0.01 Lot Risk: $${minLotDollarRisk.toFixed(2)} | SL: ${slPips} pips`
+        `Max Risk: $${microAccountRiskBudget.toFixed(2)} | Min 0.01 Lot Risk: $${minLotDollarRisk.toFixed(2)} | SL: ${slPips} pips`
       );
       return { units: 0, riskPctUsed: 0, amountToRisk: 0 };
     }
